@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.67.0
+// @version      0.70.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
+// @run-at       document-start
 // @homepage     https://github.com/AndreSoares92/Poke-Idle-World
 // @icon         https://poke.idleworld.online/favicon.ico
 // @updateURL    https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world.js
@@ -405,9 +406,9 @@
 .piw-poke-card .piw-poke-shiny {
     position: absolute; top: 6px; right: 6px; font-size: 12px;
 }
-.piw-hunt-card-btn { display: none; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; box-shadow: 0 2px 8px rgba(91,127,255,.3); }
+.piw-hunt-card-btn { display: none; position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; z-index: 2; box-shadow: 0 2px 8px rgba(91,127,255,.3); }
 .piw-poke-card:hover .piw-hunt-card-btn { display: block; }
-.piw-hunt-card-btn:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.5); transform: translateX(-50%) translateY(-2px); }
+.piw-hunt-card-btn:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.5); }
 .piw-modal-footer {
     display: flex; justify-content: space-between; align-items: center;
     padding: 12px 20px; border-top: 1px solid #3d5280;
@@ -920,17 +921,9 @@
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const name = btn.dataset.name;
-                selectedPokemon = [name];
-                GM_setValue('piw_selectedPokemon', selectedPokemon);
-                GM_setValue('piw_enabled', true);
-                enabled = true;
                 const overlayEl = document.querySelector('.piw-modal-overlay');
                 if (overlayEl) { pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false; overlayEl.remove(); }
-                if (isCity()) {
-                    doSwitch();
-                } else {
-                    syncUI();
-                }
+                navigateToPokemon(name);
             });
         });
     }
@@ -1106,6 +1099,7 @@
                 return `<div class="piw-poke-card${sel?' selected':''}" data-name="${p.name}">
                     <div class="piw-poke-check">✓</div>
                     ${canShiny ? '<div class="piw-poke-shiny">✨</div>' : ''}
+                    <button class="piw-hunt-card-btn" data-name="${p.name}" title="Caçar agora">⚔</button>
                     <img class="piw-poke-img" src="${img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">
                     <div class="piw-poke-num">#${String(p.pokeId).padStart(3,'0')}</div>
                     <div class="piw-poke-name" title="${p.name}">${p.name}</div>
@@ -1113,7 +1107,6 @@
                     <div class="piw-poke-types">
                         ${types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#888'}">${t}</span>`).join('')}
                     </div>
-                    <button class="piw-hunt-card-btn" data-name="${p.name}" title="Caçar agora">⚔ Caçar</button>
                 </div>`;
             }).join('');
 
@@ -1136,13 +1129,9 @@
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     const name = btn.dataset.name;
-                    selectedPokemon = [name];
-                    GM_setValue('piw_selectedPokemon', selectedPokemon);
-                    GM_setValue('piw_enabled', true);
-                    enabled = true;
                     pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false;
                     overlay.remove();
-                    if (isCity()) { doSwitch(); } else { syncUI(); }
+                    navigateToPokemon(name);
                 });
             });
         }
@@ -1523,6 +1512,42 @@
         }
     }
 
+    // ========== NAVEGAR ATÉ POKÉMON ==========
+    async function navigateToPokemon(pokemonName) {
+        try {
+            const mapBtn = document.querySelector('button.dock-btn[data-guide="dock-map"]');
+            if (!mapBtn) return;
+            mapBtn.click();
+            await sleep(800);
+            const mapOverlay = document.querySelector('.map-overlay');
+            if (!mapOverlay) return;
+            await sleep(400);
+            const routeData = routes.find(r => r.name?.toLowerCase() === pokemonName.toLowerCase());
+            if (routeData && routeData.area) {
+                const areaTabs = document.querySelectorAll('button.map-area');
+                for (const tab of areaTabs) {
+                    const tabText = tab.textContent?.toLowerCase() || '';
+                    const areaName = routeData.area.toLowerCase();
+                    if (tabText.includes(areaName) || (tabText.includes('outland') && areaName === 'outland')) {
+                        tab.click();
+                        await sleep(600);
+                        break;
+                    }
+                }
+            }
+            const markers = document.querySelectorAll('button.hunt-marker');
+            for (const marker of markers) {
+                const nameEl = marker.querySelector('.hunt-name');
+                if (!nameEl) continue;
+                const name = nameEl.textContent.trim();
+                if (name.toLowerCase() === pokemonName.toLowerCase()) {
+                    marker.click();
+                    return;
+                }
+            }
+        } catch(e) { GM_log('[AutoHunt] navigateToPokemon error:', e); }
+    }
+
     // ========== TROCAR DE ROTA ==========
     async function doSwitch() {
         busy = true;
@@ -1651,22 +1676,21 @@
         const check = setInterval(() => {
             if (document.querySelector('.game-root, .game-canvas-host, [class*="game-"]')) {
                 clearInterval(check);
+                buildPanel();
+                syncUI();
                 setTimeout(async () => {
                     await fetchGameData();
-                    buildPanel();
-                    detectRoute();
                     syncUI();
-                    // Pede a lista de pokémons após 6 segundos para detectar o líder
-                    setTimeout(() => {
-                        if (socket && socket.readyState === WebSocket.OPEN) {
-                            socket.send(JSON.stringify({ type: 'pokes-get' }));
-                            GM_log('[AutoHunt] Solicitando lista de pokémons');
-                        }
-                    }, 6000);
-                    GM_log('[AutoHunt] Painel criado');
-                }, 4000);
+                    renderPokemonList(document.getElementById('piw-search')?.value || '');
+                }, 500);
+                setTimeout(() => {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ type: 'pokes-get' }));
+                    }
+                }, 3000);
+                GM_log('[AutoHunt] Painel criado');
             }
-        }, 600);
+        }, 300);
     }
 
     if (document.readyState === 'loading')
