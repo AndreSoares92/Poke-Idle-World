@@ -229,7 +229,11 @@
     color: #e0e4ef; padding: 5px 10px; font-size: 12px; width: 80px;
 }
 .piw-panel .piw-label input[type=number]:focus { outline: none; border-color: #5b7fff; }
-.piw-panel .piw-label input[type=checkbox] { width: auto; accent-color: #5b7fff; }
+.piw-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; position: relative; }
+.piw-check input[type=checkbox] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 2px solid #3d4a6a; border-radius: 5px; background: #1a1f2e; cursor: pointer; transition: all .15s; flex-shrink: 0; position: relative; }
+.piw-check input[type=checkbox]:checked { background: #5b7fff; border-color: #5b7fff; box-shadow: 0 0 8px rgba(91,127,255,.3); }
+.piw-check input[type=checkbox]:checked::after { content: ''; position: absolute; left: 4px; top: 0px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.piw-check input[type=checkbox]:hover { border-color: #5b7fff; }
 
 .piw-panel .piw-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
 
@@ -488,19 +492,19 @@
             </div>
             <div class="piw-card">
                 <div class="piw-card-label">Opções</div>
-                <label class="piw-label">
+                <label class="piw-check">
                     <input type="checkbox" id="piw-shiny-only" ${shinyOnlyMode?'checked':''}>
                     Só trocar após capturar shiny
                 </label>
-                <label class="piw-label">
+                <label class="piw-check">
                     <input type="checkbox" id="piw-loop" ${loopMode?'checked':''}>
                     Modo loop (não remover da lista)
                 </label>
-                <label class="piw-label">
+                <label class="piw-check">
                     <input type="checkbox" id="piw-exit-kills" ${exitOnKills?'checked':''}>
                     Sair ao atingir abates
                 </label>
-                <label class="piw-label">
+                <label class="piw-check">
                     <input type="checkbox" id="piw-exit-captures" ${exitOnCaptures?'checked':''}>
                     Sair ao atingir capturas
                 </label>
@@ -952,8 +956,8 @@
                         <option value="">Todos os tipos</option>
                         ${Object.keys(TYPE_COLORS).sort().map(t => `<option value="${t}" ${pokedexModalTypeFilter===t?'selected':''}>${t[0]+t.slice(1).toLowerCase()}</option>`).join('')}
                     </select>
-                    <label><input type="checkbox" id="piw-pokedex-shiny" ${pokedexModalShinyOnly?'checked':''}> Shiny</label>
-                    <label><input type="checkbox" id="piw-pokedex-weak" ${pokedexModalWeakOnly?'checked':''}> Fraco contra líder</label>
+                    <label class="piw-check"><input type="checkbox" id="piw-pokedex-shiny" ${pokedexModalShinyOnly?'checked':''}> Shiny</label>
+                    <label class="piw-check"><input type="checkbox" id="piw-pokedex-weak" ${pokedexModalWeakOnly?'checked':''}> Fraco contra líder</label>
                     <span class="piw-modal-count" id="piw-pokedex-count"></span>
                 </div>
                 <div id="piw-type-hint" style="display:none;padding:8px 20px;font-size:12px;border-bottom:1px solid #1e2433"></div>
