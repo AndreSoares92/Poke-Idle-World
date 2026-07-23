@@ -2052,7 +2052,8 @@
         `;
         document.body.appendChild(overlay);
         bringToFront(overlay);
-        overlay.addEventListener('pointerdown', () => bringToFront(overlay));
+        makeBringableToFront(overlay);
+        makeBringableToFront(modal);
 
         const modal = overlay.querySelector('.piw-modal');
         const modalHeader = modal.querySelector('.piw-modal-header');
