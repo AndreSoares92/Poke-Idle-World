@@ -927,7 +927,10 @@
             if (isDragging) {
                 isDragging = false;
                 if (storageKey) {
-                    GM_setValue(storageKey, { left: win.style.left, top: win.style.top });
+                    GM_setValue(storageKey, {
+                        left: parseFloat(win.style.left),
+                        top: parseFloat(win.style.top)
+                    });
                 }
             }
         };
@@ -1224,10 +1227,10 @@
 
         const savedPos = GM_getValue('piw_panelPos', null);
         if (savedPos) {
-            panel.style.left = savedPos.left;
-            panel.style.top = savedPos.top;
-            panel.style.right = 'auto';
-            panel.style.bottom = 'auto';
+            const pl = parseFloat(savedPos.left);
+            const pt = parseFloat(savedPos.top);
+            if (!isNaN(pl)) { panel.style.left = pl + 'px'; panel.style.right = 'auto'; }
+            if (!isNaN(pt)) { panel.style.top = pt + 'px'; panel.style.bottom = 'auto'; }
         }
 
         const title = panel.querySelector('h3');
@@ -1324,8 +1327,10 @@
 
         const storedPos = GM_getValue('piw_info_win_pos', { left: 400, top: 120 });
         const storedSize = GM_getValue('piw_info_win_size', null);
-        win.style.left = `${Math.max(10, Math.min(storedPos.left, window.innerWidth - 350))}px`;
-        win.style.top = `${Math.max(10, Math.min(storedPos.top, window.innerHeight - 100))}px`;
+        const iwL = parseFloat(storedPos.left) || 400;
+        const iwT = parseFloat(storedPos.top) || 120;
+        win.style.left = `${Math.max(10, Math.min(iwL, window.innerWidth - 350))}px`;
+        win.style.top = `${Math.max(10, Math.min(iwT, window.innerHeight - 100))}px`;
         if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
         if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
         win.style.display = infoWindowVisible ? 'flex' : 'none';
@@ -1666,8 +1671,10 @@
 
         const storedPos = GM_getValue('piw_moves_win_pos', { left: 760, top: 120 });
         const storedSize = GM_getValue('piw_moves_win_size', null);
-        win.style.left = `${Math.max(10, Math.min(storedPos.left, window.innerWidth - 320))}px`;
-        win.style.top = `${Math.max(10, Math.min(storedPos.top, window.innerHeight - 100))}px`;
+        const mwL = parseFloat(storedPos.left) || 760;
+        const mwT = parseFloat(storedPos.top) || 120;
+        win.style.left = `${Math.max(10, Math.min(mwL, window.innerWidth - 320))}px`;
+        win.style.top = `${Math.max(10, Math.min(mwT, window.innerHeight - 100))}px`;
         if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
         if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
         win.style.display = movesWindowVisible ? 'flex' : 'none';
