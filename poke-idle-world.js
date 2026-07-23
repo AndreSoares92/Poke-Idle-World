@@ -529,7 +529,7 @@
                 <div class="piw-card-label">Pokémon</div>
                 <button class="piw-btn piw-btn-primary" id="piw-open-pokedex" style="width:100%;padding:7px 0;font-size:12px;font-weight:600">Selecionar Pokémon</button>
                 <div class="piw-selected-tags" id="piw-selected-tags"></div>
-                <div class="piw-hint" id="piw-hint">Nenhum selecionado - troca qualquer rota</div>
+                <div class="piw-hint" id="piw-hint">Nenhum selecionado</div>
             </div>
             </div>
             </div>
@@ -778,7 +778,7 @@
         ).join('');
         if (hint) {
             hint.textContent = selectedPokemon.length === 0
-                ? 'Nenhum selecionado - troca qualquer rota'
+                ? 'Nenhum selecionado'
                 : `${selectedPokemon.length} selecionado(s)`;
         }
         // Event listeners para remover
