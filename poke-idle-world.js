@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.63.0
+// @version      0.64.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -234,6 +234,7 @@
 .piw-check input[type=checkbox]:checked { background: #5b7fff; border-color: #5b7fff; box-shadow: 0 0 8px rgba(91,127,255,.3); }
 .piw-check input[type=checkbox]:checked::after { content: ''; position: absolute; left: 4px; top: 0px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .piw-check input[type=checkbox]:hover { border-color: #5b7fff; }
+.piw-modal-toolbar .piw-check { font-size: 12px; color: #9aa3bf; }
 
 .piw-panel .piw-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
 
@@ -341,13 +342,13 @@
     transition: border-color .15s;
 }
 .piw-modal-toolbar select:focus { outline: none; border-color: #5b7fff; }
-.piw-modal-toolbar label {
+.piw-modal-toolbar label:not(.piw-check) {
     display: flex; align-items: center; gap: 5px; font-size: 12px; color: #9aa3bf; cursor: pointer;
     padding: 6px 12px; border-radius: 10px; border: 1px solid #2d3548; background: #1a1f2e;
     transition: all .15s;
 }
-.piw-modal-toolbar label:hover { border-color: #5b7fff; color: #e0e4ef; }
-.piw-modal-toolbar label input { accent-color: #5b7fff; }
+.piw-modal-toolbar label:not(.piw-check):hover { border-color: #5b7fff; color: #e0e4ef; }
+.piw-modal-toolbar label:not(.piw-check) input { accent-color: #5b7fff; }
 .piw-modal-toolbar .piw-modal-count {
     font-size: 11px; color: #9aa3bf; white-space: nowrap;
 }
