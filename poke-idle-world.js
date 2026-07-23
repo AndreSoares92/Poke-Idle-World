@@ -1885,21 +1885,38 @@
             'hooh': 'Ho-oh',
         };
         const pokemonMap = new Map();
-        routes.forEach(r => {
-            if (r.name) {
-                const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                const mappedName = NAME_MAP[key] || r.name;
-                const creature = creatures.find(c => c.name?.toLowerCase() === mappedName.toLowerCase())
-                    || creatures.find(c => c.name?.toLowerCase().replace(/[^a-z0-9]/g, '') === key);
+
+        if (creatures && creatures.length > 0) {
+            for (const c of creatures) {
+                if (!c.name || c.pokeId >= 10000) continue;
+                const key = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const routeMatch = routes.find(r => r.name?.toLowerCase() === c.name.toLowerCase());
                 pokemonMap.set(key, {
-                    name: r.name,
-                    level: r.level || 0,
-                    pokeId: creature?.pokeId || 0,
-                    type1: creature?.type1 || '',
-                    type2: creature?.type2 || '',
+                    name: c.name,
+                    level: routeMatch?.level || c.level || 1,
+                    pokeId: c.pokeId || 0,
+                    type1: c.type1 || '',
+                    type2: c.type2 || '',
                 });
             }
-        });
+        } else {
+            routes.forEach(r => {
+                if (r.name) {
+                    const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const mappedName = NAME_MAP[key] || r.name;
+                    const creature = creatures.find(c => c.name?.toLowerCase() === mappedName.toLowerCase())
+                        || creatures.find(c => c.name?.toLowerCase().replace(/[^a-z0-9]/g, '') === key);
+                    pokemonMap.set(key, {
+                        name: r.name,
+                        level: r.level || 0,
+                        pokeId: creature?.pokeId || 0,
+                        type1: creature?.type1 || '',
+                        type2: creature?.type2 || '',
+                    });
+                }
+            });
+        }
+
         for (const city of CITY_SLUGS) pokemonMap.delete(city);
         let pokemonArray = [...pokemonMap.values()];
         if (filterWeakOnly && leaderTypes.length > 0) {
@@ -1910,7 +1927,7 @@
         }
         if (filter) {
             const f = filter.toLowerCase();
-            pokemonArray = pokemonArray.filter(p => p.name.toLowerCase().includes(f));
+            pokemonArray = pokemonArray.filter(p => p.name.toLowerCase().includes(f) || String(p.pokeId).includes(f));
         }
         pokemonArray.sort((a, b) => a.pokeId - b.pokeId || a.level - b.level);
         return pokemonArray;
@@ -1984,6 +2001,12 @@
     let pokedexModalWeakOnly = false;
 
     function getPokemonImageUrl(pokeId, name, animated = false) {
+        if (!pokeId || pokeId <= 0) {
+            if (name && creatures && creatures.length > 0) {
+                const c = creatures.find(cr => cr.name?.toLowerCase() === name.toLowerCase());
+                if (c && c.pokeId > 0) pokeId = c.pokeId;
+            }
+        }
         if (!pokeId || pokeId <= 0) return '';
         if (pokeId < 10000) {
             if (animated && pokeId <= 649) {
@@ -2463,6 +2486,13 @@
             if (domLeader) {
                 leaderName = domLeader.name;
                 leaderLevel = domLeader.level;
+                if (creatures && creatures.length > 0) {
+                    const c = creatures.find(cr => cr.name?.toLowerCase() === leaderName.toLowerCase());
+                    if (c) {
+                        leaderPokeId = c.pokeId || 0;
+                        leaderTypes = [c.type1, c.type2].filter(Boolean);
+                    }
+                }
                 syncUI();
             }
         }
