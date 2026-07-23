@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.71.0
+// @version      0.72.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -609,11 +609,12 @@
             enabled = false;
             GM_setValue('piw_enabled', false);
             syncUI();
-            // Tenta clicar no ícone da casa pra voltar pra cidade
-            const houseBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], [class*="home"], [class*="city"]');
+            const houseBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn[data-guide*="home"], button.dock-btn[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"]');
             if (houseBtn) {
                 houseBtn.click();
                 GM_log('[AutoHunt] Stop: voltando pra cidade');
+            } else {
+                GM_log('[AutoHunt] Stop: botão da casa não encontrado');
             }
         });
         panel.querySelector('#piw-shiny-only').onchange = function() {
@@ -757,7 +758,7 @@
         if (startMini) startMini.style.display = (isCity() && selectedPokemon.length > 0 && !busy) ? 'block' : 'none';
         const huntEl = document.getElementById('piw-hunting-display');
         const huntElMini = document.getElementById('piw-hunting-display-mini');
-        const huntHTML = (huntingPokemon && selectedPokemon.length > 0 && enabled) ? (() => {
+        const huntHTML = (huntingPokemon && selectedPokemon.length > 0) ? (() => {
             const creature = creatures.find(c => c.name?.toLowerCase() === huntingPokemon.toLowerCase());
             const types = [creature?.type1, creature?.type2].filter(Boolean);
             const typeBadges = types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${t}</span>`).join(' ');
