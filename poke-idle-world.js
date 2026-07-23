@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.66.0
+// @version      0.67.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -403,8 +403,11 @@
 }
 .piw-poke-card.selected .piw-poke-check { display: flex; }
 .piw-poke-card .piw-poke-shiny {
-    position: absolute; top: 5px; left: 5px; font-size: 10px;
+    position: absolute; top: 6px; right: 6px; font-size: 12px;
 }
+.piw-hunt-card-btn { display: none; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; box-shadow: 0 2px 8px rgba(91,127,255,.3); }
+.piw-poke-card:hover .piw-hunt-card-btn { display: block; }
+.piw-hunt-card-btn:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.5); transform: translateX(-50%) translateY(-2px); }
 .piw-modal-footer {
     display: flex; justify-content: space-between; align-items: center;
     padding: 12px 20px; border-top: 1px solid #3d5280;
@@ -1110,13 +1113,15 @@
                     <div class="piw-poke-types">
                         ${types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#888'}">${t}</span>`).join('')}
                     </div>
+                    <button class="piw-hunt-card-btn" data-name="${p.name}" title="Caçar agora">⚔ Caçar</button>
                 </div>`;
             }).join('');
 
             infoEl.textContent = `${tempSelected.length} selecionado(s)`;
 
             grid.querySelectorAll('.piw-poke-card').forEach(card => {
-                card.addEventListener('click', () => {
+                card.addEventListener('click', (e) => {
+                    if (e.target.closest('.piw-hunt-card-btn')) return;
                     const name = card.dataset.name;
                     if (tempSelected.includes(name)) {
                         tempSelected = tempSelected.filter(n => n !== name);
@@ -1125,6 +1130,19 @@
                     }
                     card.classList.toggle('selected');
                     infoEl.textContent = `${tempSelected.length} selecionado(s)`;
+                });
+            });
+            grid.querySelectorAll('.piw-hunt-card-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const name = btn.dataset.name;
+                    selectedPokemon = [name];
+                    GM_setValue('piw_selectedPokemon', selectedPokemon);
+                    GM_setValue('piw_enabled', true);
+                    enabled = true;
+                    pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false;
+                    overlay.remove();
+                    if (isCity()) { doSwitch(); } else { syncUI(); }
                 });
             });
         }
