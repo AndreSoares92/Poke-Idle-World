@@ -976,6 +976,18 @@
         document.addEventListener('mouseup', onEnd);
     }
 
+    function applyOpacityAll(pct) {
+        const val = (pct != null ? pct : GM_getValue('piw_opacity', 100)) / 100;
+        const panelEl = document.querySelector('.piw-panel');
+        const infoWin = document.getElementById('piw-info-window');
+        const movesWin = document.getElementById('piw-moves-window');
+        const modalEl = document.querySelector('.piw-modal');
+        if (panelEl) panelEl.style.opacity = String(val);
+        if (infoWin) infoWin.style.opacity = String(val);
+        if (movesWin) movesWin.style.opacity = String(val);
+        if (modalEl) modalEl.style.opacity = String(val);
+    }
+
     function isWindowOnTop(win) {
         if (!win) return false;
         const currentZ = parseInt(win.style.zIndex || '0', 10);
@@ -1110,19 +1122,6 @@
             minBtn.textContent = minimized ? '+' : '−';
             syncUI();
         });
-
-    function applyOpacityAll(pct) {
-        const val = (pct ?? GM_getValue('piw_opacity', 100)) / 100;
-        const panelEl = document.querySelector('.piw-panel');
-        const infoWin = document.getElementById('piw-info-window');
-        const movesWin = document.getElementById('piw-moves-window');
-        const modalEl = document.querySelector('.piw-modal');
-
-        if (panelEl) panelEl.style.opacity = String(val);
-        if (infoWin) infoWin.style.opacity = String(val);
-        if (movesWin) movesWin.style.opacity = String(val);
-        if (modalEl) modalEl.style.opacity = String(val);
-    }
 
         const opacitySlider = panel.querySelector('#piw-opacity');
         if (opacitySlider) {
