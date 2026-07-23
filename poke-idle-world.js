@@ -5,6 +5,7 @@
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
+// @homepage     https://github.com/AndreSoares92/Poke-Idle-World
 // @icon         https://poke.idleworld.online/favicon.ico
 // @updateURL    https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world.js
 // @downloadURL  https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world.js
