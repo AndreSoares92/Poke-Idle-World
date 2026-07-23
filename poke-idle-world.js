@@ -886,8 +886,8 @@
 
     function makeBringableToFront(el) {
         if (!el) return;
-        el.addEventListener('pointerdown', () => bringToFront(el), true);
-        el.addEventListener('mousedown', () => bringToFront(el), true);
+        el.addEventListener('pointerdown', () => bringToFront(el));
+        el.addEventListener('mousedown', () => bringToFront(el));
     }
 
     function makeDraggable(win, handle, storageKey) {
@@ -1344,13 +1344,20 @@
         document.body.appendChild(win);
         applyOpacityAll();
 
-        win.querySelector('#piw-iw-close-btn').addEventListener('click', toggleInfoWindow);
+        win.querySelector('#piw-iw-close-btn').addEventListener('click', closeInfoWindow);
 
         const head = win.querySelector('.piw-iw-head');
         makeDraggable(win, head, 'piw_info_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
         makeResizable(win, resizeHandle, 'piw_info_win_size', 260, 180);
+    }
+
+    function closeInfoWindow() {
+        infoWindowVisible = false;
+        GM_setValue('piw_info_win_visible', false);
+        const win = document.getElementById('piw-info-window');
+        if (win) win.style.display = 'none';
     }
 
     function toggleInfoWindow() {
@@ -1360,20 +1367,14 @@
             win = document.getElementById('piw-info-window');
         }
         if (!win) return;
-        const isTop = isWindowOnTop(win);
 
-        if (!infoWindowVisible) {
-            infoWindowVisible = true;
-            win.style.display = 'flex';
+        infoWindowVisible = !infoWindowVisible;
+        GM_setValue('piw_info_win_visible', infoWindowVisible);
+        win.style.display = infoWindowVisible ? 'flex' : 'none';
+        if (infoWindowVisible) {
             bringToFront(win);
             renderInfoWindow();
-        } else if (!isTop) {
-            bringToFront(win);
-        } else {
-            infoWindowVisible = false;
-            win.style.display = 'none';
         }
-        GM_setValue('piw_info_win_visible', infoWindowVisible);
     }
 
     function renderInfoWindow() {
@@ -1685,13 +1686,20 @@
         document.body.appendChild(win);
         applyOpacityAll();
 
-        win.querySelector('#piw-mw-close-btn').addEventListener('click', toggleMovesWindow);
+        win.querySelector('#piw-mw-close-btn').addEventListener('click', closeMovesWindow);
 
         const head = win.querySelector('.piw-mw-head');
         makeDraggable(win, head, 'piw_moves_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
         makeResizable(win, resizeHandle, 'piw_moves_win_size', 220, 160);
+    }
+
+    function closeMovesWindow() {
+        movesWindowVisible = false;
+        GM_setValue('piw_moves_win_visible', false);
+        const win = document.getElementById('piw-moves-window');
+        if (win) win.style.display = 'none';
     }
 
     function toggleMovesWindow() {
@@ -1701,20 +1709,14 @@
             win = document.getElementById('piw-moves-window');
         }
         if (!win) return;
-        const isTop = isWindowOnTop(win);
 
-        if (!movesWindowVisible) {
-            movesWindowVisible = true;
-            win.style.display = 'flex';
+        movesWindowVisible = !movesWindowVisible;
+        GM_setValue('piw_moves_win_visible', movesWindowVisible);
+        win.style.display = movesWindowVisible ? 'flex' : 'none';
+        if (movesWindowVisible) {
             bringToFront(win);
             renderMovesWindow();
-        } else if (!isTop) {
-            bringToFront(win);
-        } else {
-            movesWindowVisible = false;
-            win.style.display = 'none';
         }
-        GM_setValue('piw_moves_win_visible', movesWindowVisible);
     }
 
     function renderMovesWindow() {
