@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.62.0
+// @version      0.63.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -909,6 +909,7 @@
     let pokedexModalFilter = '';
     let pokedexModalTypeFilter = '';
     let pokedexModalShinyOnly = false;
+    let pokedexModalWeakOnly = false;
 
     function getPokemonImageUrl(pokeId, name, animated = false) {
         if (!pokeId || pokeId <= 0) return '';
@@ -952,6 +953,7 @@
                         ${Object.keys(TYPE_COLORS).sort().map(t => `<option value="${t}" ${pokedexModalTypeFilter===t?'selected':''}>${t[0]+t.slice(1).toLowerCase()}</option>`).join('')}
                     </select>
                     <label><input type="checkbox" id="piw-pokedex-shiny" ${pokedexModalShinyOnly?'checked':''}> Shiny</label>
+                    <label><input type="checkbox" id="piw-pokedex-weak" ${pokedexModalWeakOnly?'checked':''}> Fraco contra líder</label>
                     <span class="piw-modal-count" id="piw-pokedex-count"></span>
                 </div>
                 <div id="piw-type-hint" style="display:none;padding:8px 20px;font-size:12px;border-bottom:1px solid #1e2433"></div>
@@ -1060,6 +1062,9 @@
             if (shinyOnly) {
                 pokemonArray = pokemonArray.filter(p => shinyAvailable.has(p.name.toLowerCase()));
             }
+            if (pokedexModalWeakOnly && leaderTypes.length > 0) {
+                pokemonArray = pokemonArray.filter(p => isWeakAgainstLeader(p.name, leaderTypes));
+            }
 
             countEl.textContent = `${pokemonArray.length} pokemon(s)`;
 
@@ -1118,6 +1123,8 @@
             }
         });
         shinyCheck.addEventListener('change', () => { pokedexModalShinyOnly = shinyCheck.checked; renderPokedex(); });
+        const weakCheck = document.getElementById('piw-pokedex-weak');
+        weakCheck.addEventListener('change', () => { pokedexModalWeakOnly = weakCheck.checked; renderPokedex(); });
 
         document.getElementById('piw-pokedex-select-all').addEventListener('click', () => {
             const filter = searchInput.value.toLowerCase();
@@ -1127,6 +1134,7 @@
             if (filter) list = list.filter(p => p.name.toLowerCase().includes(filter) || String(p.pokeId).includes(filter));
             if (typeF) list = list.filter(p => p.type1 === typeF || p.type2 === typeF);
             if (shinyOnly) list = list.filter(p => shinyAvailable.has(p.name.toLowerCase()));
+            if (pokedexModalWeakOnly && leaderTypes.length > 0) list = list.filter(p => isWeakAgainstLeader(p.name, leaderTypes));
             tempSelected = [...new Set([...tempSelected, ...list.map(p => p.name)])];
             renderPokedex();
         });
@@ -1143,10 +1151,11 @@
             renderPokemonList(document.getElementById('piw-search')?.value || '');
             pokedexModalTypeFilter = '';
             pokedexModalFilter = '';
+            pokedexModalWeakOnly = false;
             overlay.remove();
         });
 
-        document.getElementById('piw-pokedex-close').addEventListener('click', () => { pokedexModalTypeFilter = ''; pokedexModalFilter = ''; overlay.remove(); });
+        document.getElementById('piw-pokedex-close').addEventListener('click', () => { pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false; overlay.remove(); });
 
         renderPokedex();
     }
