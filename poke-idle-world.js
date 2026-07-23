@@ -890,6 +890,92 @@
         el.addEventListener('mousedown', () => bringToFront(el), true);
     }
 
+    function makeDraggable(win, handle, storageKey) {
+        if (!win || !handle) return;
+        let isDragging = false;
+        let startX = 0, startY = 0;
+        let initialLeft = 0, initialTop = 0;
+
+        const onStart = (e) => {
+            if (e.target.closest('.piw-close, .piw-iw-close, .piw-mw-close, .piw-modal-close, input, button, select, label')) return;
+            isDragging = true;
+            const rect = win.getBoundingClientRect();
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            win.style.left = `${initialLeft}px`;
+            win.style.top = `${initialTop}px`;
+            win.style.right = 'auto';
+            win.style.bottom = 'auto';
+            win.style.transform = 'none';
+            bringToFront(win);
+            e.preventDefault();
+        };
+
+        const onMove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            const newLeft = Math.max(0, Math.min(window.innerWidth - win.offsetWidth, initialLeft + dx));
+            const newTop = Math.max(0, Math.min(window.innerHeight - win.offsetHeight, initialTop + dy));
+            win.style.left = `${newLeft}px`;
+            win.style.top = `${newTop}px`;
+        };
+
+        const onEnd = () => {
+            if (isDragging) {
+                isDragging = false;
+                if (storageKey) {
+                    GM_setValue(storageKey, { left: win.style.left, top: win.style.top });
+                }
+            }
+        };
+
+        handle.addEventListener('mousedown', onStart);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+    }
+
+    function makeResizable(win, resizeHandle, storageKey, minW = 240, minH = 160) {
+        if (!win || !resizeHandle) return;
+        let isResizing = false;
+        let startX = 0, startY = 0;
+        let startW = 0, startH = 0;
+
+        const onStart = (e) => {
+            isResizing = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startW = win.offsetWidth;
+            startH = win.offsetHeight;
+            bringToFront(win);
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        const onMove = (e) => {
+            if (!isResizing) return;
+            const newW = Math.max(minW, Math.min(window.innerWidth - win.offsetLeft, startW + (e.clientX - startX)));
+            const newH = Math.max(minH, Math.min(window.innerHeight - win.offsetTop, startH + (e.clientY - startY)));
+            win.style.width = `${newW}px`;
+            win.style.height = `${newH}px`;
+        };
+
+        const onEnd = () => {
+            if (isResizing) {
+                isResizing = false;
+                if (storageKey) {
+                    GM_setValue(storageKey, { w: Math.round(win.offsetWidth), h: Math.round(win.offsetHeight) });
+                }
+            }
+        };
+
+        resizeHandle.addEventListener('mousedown', onStart);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+    }
+
     function isWindowOnTop(win) {
         if (!win) return false;
         const currentZ = parseInt(win.style.zIndex || '0', 10);
@@ -1146,30 +1232,7 @@
         }
 
         const title = panel.querySelector('h3');
-        let isDragging = false, offsetX, offsetY;
-        title.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.piw-close') || e.target.id === 'piw-opacity' || e.target.closest('#piw-opacity')) return;
-            isDragging = true;
-            offsetX = e.clientX - panel.getBoundingClientRect().left;
-            offsetY = e.clientY - panel.getBoundingClientRect().top;
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            panel.style.left = (e.clientX - offsetX) + 'px';
-            panel.style.top = (e.clientY - offsetY) + 'px';
-            panel.style.right = 'auto';
-            panel.style.bottom = 'auto';
-        });
-        document.addEventListener('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                GM_setValue('piw_panelPos', {
-                    left: panel.style.left,
-                    top: panel.style.top
-                });
-            }
-        });
+        makeDraggable(panel, title, 'piw_panelPos');
 
         renderSelectedTags();
         renderPokemonList('');
@@ -1284,61 +1347,18 @@
         win.querySelector('#piw-iw-close-btn').addEventListener('click', toggleInfoWindow);
 
         const head = win.querySelector('.piw-iw-head');
-        let dragOffset = null;
-
-        head.addEventListener('pointerdown', (e) => {
-            if (e.target.id === 'piw-iw-close-btn') return;
-            const rect = win.getBoundingClientRect();
-            dragOffset = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
-            head.setPointerCapture(e.pointerId);
-        });
-
-        head.addEventListener('pointermove', (e) => {
-            if (!dragOffset) return;
-            const newLeft = Math.max(10, Math.min(e.clientX - dragOffset.dx, window.innerWidth - win.offsetWidth - 10));
-            const newTop = Math.max(10, Math.min(e.clientY - dragOffset.dy, window.innerHeight - 40));
-            win.style.left = `${newLeft}px`;
-            win.style.top = `${newTop}px`;
-        });
-
-        head.addEventListener('pointerup', (e) => {
-            if (dragOffset) {
-                dragOffset = null;
-                const rect = win.getBoundingClientRect();
-                GM_setValue('piw_info_win_pos', { left: rect.left, top: rect.top });
-            }
-        });
+        makeDraggable(win, head, 'piw_info_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        let resizeStart = null;
-
-        resizeHandle.addEventListener('pointerdown', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const rect = win.getBoundingClientRect();
-            resizeStart = { left: rect.left, top: rect.top };
-            resizeHandle.setPointerCapture(e.pointerId);
-        });
-
-        resizeHandle.addEventListener('pointermove', (e) => {
-            if (!resizeStart) return;
-            const newW = Math.max(260, Math.min(640, Math.round(e.clientX - resizeStart.left)));
-            const newH = Math.max(180, Math.min(window.innerHeight - 20, Math.round(e.clientY - resizeStart.top)));
-            win.style.width = `${newW}px`;
-            win.style.height = `${newH}px`;
-        });
-
-        resizeHandle.addEventListener('pointerup', (e) => {
-            if (resizeStart) {
-                resizeStart = null;
-                const rect = win.getBoundingClientRect();
-                GM_setValue('piw_info_win_size', { w: Math.round(rect.width), h: Math.round(rect.height) });
-            }
-        });
+        makeResizable(win, resizeHandle, 'piw_info_win_size', 260, 180);
     }
 
     function toggleInfoWindow() {
-        const win = document.getElementById('piw-info-window');
+        let win = document.getElementById('piw-info-window');
+        if (!win) {
+            createInfoWindowDOM();
+            win = document.getElementById('piw-info-window');
+        }
         if (!win) return;
         const isTop = isWindowOnTop(win);
 
@@ -1668,61 +1688,18 @@
         win.querySelector('#piw-mw-close-btn').addEventListener('click', toggleMovesWindow);
 
         const head = win.querySelector('.piw-mw-head');
-        let dragOffset = null;
-
-        head.addEventListener('pointerdown', (e) => {
-            if (e.target.id === 'piw-mw-close-btn') return;
-            const rect = win.getBoundingClientRect();
-            dragOffset = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
-            head.setPointerCapture(e.pointerId);
-        });
-
-        head.addEventListener('pointermove', (e) => {
-            if (!dragOffset) return;
-            const newLeft = Math.max(10, Math.min(e.clientX - dragOffset.dx, window.innerWidth - win.offsetWidth - 10));
-            const newTop = Math.max(10, Math.min(e.clientY - dragOffset.dy, window.innerHeight - 40));
-            win.style.left = `${newLeft}px`;
-            win.style.top = `${newTop}px`;
-        });
-
-        head.addEventListener('pointerup', (e) => {
-            if (dragOffset) {
-                dragOffset = null;
-                const rect = win.getBoundingClientRect();
-                GM_setValue('piw_moves_win_pos', { left: rect.left, top: rect.top });
-            }
-        });
+        makeDraggable(win, head, 'piw_moves_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        let resizeStart = null;
-
-        resizeHandle.addEventListener('pointerdown', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const rect = win.getBoundingClientRect();
-            resizeStart = { left: rect.left, top: rect.top };
-            resizeHandle.setPointerCapture(e.pointerId);
-        });
-
-        resizeHandle.addEventListener('pointermove', (e) => {
-            if (!resizeStart) return;
-            const newW = Math.max(220, Math.min(600, Math.round(e.clientX - resizeStart.left)));
-            const newH = Math.max(160, Math.min(window.innerHeight - 20, Math.round(e.clientY - resizeStart.top)));
-            win.style.width = `${newW}px`;
-            win.style.height = `${newH}px`;
-        });
-
-        resizeHandle.addEventListener('pointerup', (e) => {
-            if (resizeStart) {
-                resizeStart = null;
-                const rect = win.getBoundingClientRect();
-                GM_setValue('piw_moves_win_size', { w: Math.round(rect.width), h: Math.round(rect.height) });
-            }
-        });
+        makeResizable(win, resizeHandle, 'piw_moves_win_size', 220, 160);
     }
 
     function toggleMovesWindow() {
-        const win = document.getElementById('piw-moves-window');
+        let win = document.getElementById('piw-moves-window');
+        if (!win) {
+            createMovesWindowDOM();
+            win = document.getElementById('piw-moves-window');
+        }
         if (!win) return;
         const isTop = isWindowOnTop(win);
 
@@ -2064,13 +2041,13 @@
             </div>
         `;
         document.body.appendChild(overlay);
+        const modal = overlay.querySelector('.piw-modal');
+        const modalHeader = modal.querySelector('.piw-modal-header');
+
         bringToFront(overlay);
         makeBringableToFront(overlay);
         makeBringableToFront(modal);
         applyOpacityAll();
-
-        const modal = overlay.querySelector('.piw-modal');
-        const modalHeader = modal.querySelector('.piw-modal-header');
 
         const savedModalSize = GM_getValue('piw_modalSize', null);
         if (savedModalSize) {
@@ -2085,50 +2062,12 @@
             modal.style.top = savedModalPos.top;
         }
 
-        let modalDragging = false, modalOx, modalOy;
-        modalHeader.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.piw-modal-close')) return;
-            modalDragging = true;
-            modalOx = e.clientX - modal.getBoundingClientRect().left;
-            modalOy = e.clientY - modal.getBoundingClientRect().top;
-            modal.style.transform = 'none';
-            modal.style.left = modal.getBoundingClientRect().left + 'px';
-            modal.style.top = modal.getBoundingClientRect().top + 'px';
-            e.preventDefault();
-        });
-        document.addEventListener('mousemove', (e) => {
-            if (!modalDragging) return;
-            modal.style.left = (e.clientX - modalOx) + 'px';
-            modal.style.top = (e.clientY - modalOy) + 'px';
-        });
-        document.addEventListener('mouseup', () => {
-            if (modalDragging) {
-                modalDragging = false;
-                GM_setValue('piw_modalPos', { left: modal.style.left, top: modal.style.top });
-            }
-        });
+        makeDraggable(modal, modalHeader, 'piw_modalPos');
 
         const modalResize = document.createElement('div');
         modalResize.className = 'piw-modal-resize';
         modal.appendChild(modalResize);
-        let modalResizing = false, mrsX, mrsY, mrsW, mrsH;
-        modalResize.addEventListener('mousedown', (e) => {
-            modalResizing = true;
-            mrsX = e.clientX; mrsY = e.clientY;
-            mrsW = modal.offsetWidth; mrsH = modal.offsetHeight;
-            e.preventDefault(); e.stopPropagation();
-        });
-        document.addEventListener('mousemove', (e) => {
-            if (!modalResizing) return;
-            modal.style.width = Math.max(500, mrsW + e.clientX - mrsX) + 'px';
-            modal.style.height = Math.max(400, mrsH + e.clientY - mrsY) + 'px';
-        });
-        document.addEventListener('mouseup', () => {
-            if (modalResizing) {
-                modalResizing = false;
-                GM_setValue('piw_modalSize', { w: modal.style.width, h: modal.style.height });
-            }
-        });
+        makeResizable(modal, modalResize, 'piw_modalSize', 500, 400);
 
         const grid = document.getElementById('piw-pokedex-grid');
         const searchInput = document.getElementById('piw-pokedex-search');
