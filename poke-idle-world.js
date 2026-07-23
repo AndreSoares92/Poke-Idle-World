@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.39.0
+// @version      0.62.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -73,6 +73,27 @@
         FIGHTING: ['NORMAL', 'ICE', 'ROCK', 'DARK', 'STEEL'],
     };
 
+    const TYPE_WEAK_TO = {
+        NORMAL:   ['FIGHTING'],
+        FIRE:     ['WATER', 'GROUND', 'ROCK'],
+        WATER:    ['GRASS', 'ELECTRIC'],
+        GRASS:    ['FIRE', 'ICE', 'POISON', 'FLYING', 'BUG'],
+        ELECTRIC: ['GROUND'],
+        ICE:      ['FIRE', 'FIGHTING', 'ROCK', 'STEEL'],
+        FIGHTING: ['FLYING', 'PSYCHIC', 'FAIRY'],
+        POISON:   ['GROUND', 'PSYCHIC'],
+        GROUND:   ['WATER', 'GRASS', 'ICE'],
+        FLYING:   ['ELECTRIC', 'ICE', 'ROCK'],
+        PSYCHIC:  ['BUG', 'GHOST', 'DARK'],
+        BUG:      ['FIRE', 'FLYING', 'ROCK'],
+        ROCK:     ['WATER', 'GRASS', 'FIGHTING', 'GROUND', 'STEEL'],
+        GHOST:    ['GHOST', 'DARK'],
+        DRAGON:   ['ICE', 'DRAGON', 'FAIRY'],
+        DARK:     ['FIGHTING', 'BUG', 'FAIRY'],
+        STEEL:    ['FIRE', 'FIGHTING', 'GROUND'],
+        FAIRY:    ['POISON', 'STEEL'],
+    };
+
     const TYPE_COLORS = {
         NORMAL: '#a8a878', FIRE: '#f08030', WATER: '#6890f0', GRASS: '#78c850',
         ELECTRIC: '#f8d030', ICE: '#98d8d8', BUG: '#a8b820', POISON: '#a040a0',
@@ -114,6 +135,8 @@
     // Estado do líder
     let leaderName = '';
     let leaderTypes = [];
+    let leaderPokeId = 0;
+    let leaderLevel = 0;
     let filterWeakOnly = GM_getValue('piw_filterWeakOnly', false);
     let currentPage = 1;
     const ITEMS_PER_PAGE = 25;
@@ -150,33 +173,34 @@
     GM_addStyle(`
 .piw-panel {
     position: fixed; bottom: 76px; right: 10px; z-index: 2147483647;
-    background: #111422; border: 1px solid #252c3c; border-radius: 16px;
-    padding: 16px 14px; color: #e0e4ef; font: 13px/1.4 'Segoe UI',sans-serif;
-    width: 340px; min-width: 300px; box-shadow: 0 8px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(80,100,160,.08);
+    background: #111422; border: 1px solid #3d5280; border-radius: 16px;
+    color: #e0e4ef; font: 13px/1.4 'Segoe UI',sans-serif;
+    width: 340px; min-width: 300px; box-shadow: 0 8px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(91,127,255,.15);
     backdrop-filter: blur(6px); user-select: none;
-    max-height: 85vh; overflow-y: auto; overflow-x: hidden;
+    max-height: 85vh; overflow: hidden;
 }
-.piw-panel::-webkit-scrollbar { width: 5px; }
-.piw-panel::-webkit-scrollbar-track { background: transparent; }
-.piw-panel::-webkit-scrollbar-thumb { background: #2d3548; border-radius: 3px; }
+.piw-panel-inner { padding: 16px 14px; overflow-y: auto; max-height: calc(85vh - 42px); scrollbar-width: thin; scrollbar-color: #2d3548 transparent; }
+.piw-panel-inner::-webkit-scrollbar { width: 5px; }
+.piw-panel-inner::-webkit-scrollbar-track { background: transparent; }
+.piw-panel-inner::-webkit-scrollbar-thumb { background: #2d3548; border-radius: 3px; }
 .piw-panel { padding-top: 0 !important; }
-.piw-panel h3 { margin: 0 0 6px; padding-top: 6px; font-size: 15px; color: #e0e4ef; font-weight: 700; letter-spacing: .3px; cursor: move; display: flex; justify-content: space-between; align-items: center; user-select: none; }
+.piw-panel h3 { margin: 0 0 8px; padding: 10px 14px; font-size: 15px; color: #e0e4ef; font-weight: 700; letter-spacing: .3px; cursor: move; display: flex; justify-content: space-between; align-items: center; user-select: none; background: linear-gradient(135deg,#1a1f35,#252d48); border-radius: 16px 16px 0 0; border-bottom: 1px solid #2d3650; }
 .piw-panel h3:active { cursor: move; }
 
 .piw-card {
-    background: #181d2c; border: 1px solid #252c3c; border-radius: 12px;
+    background: #181d2c; border: 1px solid #3d5280; border-radius: 12px;
     padding: 10px 12px; margin-bottom: 8px;
 }
 .piw-card-label {
     font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px;
-    color: #5a6888; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #252c3c;
+    color: #5a6888; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #3d5280;
 }
 
 .piw-panel .piw-btn {
     background: #1a1f2e; border: 1px solid #2d3548; color: #e0e4ef; border-radius: 10px;
     padding: 6px 14px; cursor: pointer; font-size: 12px; transition: all .15s; font-weight: 500;
 }
-.piw-panel .piw-btn:hover { background: #252c3c; border-color: #3d4a6a; }
+.piw-panel .piw-btn:hover { background: #3d5280; border-color: #3d4a6a; }
 .piw-panel .piw-btn:active { background: #2d3548; }
 .piw-panel .piw-btn.piw-btn-primary { background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(91,127,255,.3); }
 .piw-panel .piw-btn.piw-btn-primary:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.4); }
@@ -238,7 +262,7 @@
 }
 .piw-panel .piw-search::placeholder { color: #4a5270; }
 .piw-panel .piw-pokemon-list {
-    max-height: 120px; overflow-y: auto; border: 1px solid #252c3c;
+    max-height: 120px; overflow-y: auto; border: 1px solid #3d5280;
     border-radius: 8px; margin-bottom: 6px; background: #131720;
 }
 .piw-panel .piw-pokemon-item {
@@ -273,10 +297,10 @@
 }
 .piw-modal { pointer-events: auto; }
 .piw-modal {
-    background: #111422; border: 1px solid #252c3c; border-radius: 16px;
+    background: #111422; border: 1px solid #3d5280; border-radius: 16px;
     width: 800px; height: 600px;
     display: flex; flex-direction: column; overflow: hidden;
-    box-shadow: 0 12px 50px rgba(0,0,0,.7), 0 0 0 1px rgba(80,100,160,.08);
+    box-shadow: 0 12px 50px rgba(0,0,0,.7), 0 0 0 1px rgba(91,127,255,.15);
     position: fixed; top: calc(50vh - 300px); left: calc(50vw - 400px);
     min-width: 500px; min-height: 400px;
 }
@@ -285,7 +309,7 @@
 .piw-modal-resize::after { content: ''; position: absolute; bottom: 4px; right: 4px; width: 8px; height: 8px; border-right: 2px solid #5a6380; border-bottom: 2px solid #5a6380; }
 .piw-modal-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 20px; border-bottom: 1px solid #252c3c;
+    padding: 14px 20px; border-bottom: 1px solid #3d5280;
     background: linear-gradient(180deg, #1c2233 0%, #151924 100%);
     cursor: move; user-select: none;
 }
@@ -335,7 +359,7 @@
     gap: 10px;
 }
 .piw-poke-card {
-    background: #1a1f2e; border: 1px solid #252c3c; border-radius: 12px;
+    background: #1a1f2e; border: 1px solid #3d5280; border-radius: 12px;
     padding: 10px 6px; cursor: pointer; text-align: center; transition: all .2s;
     position: relative;
 }
@@ -375,7 +399,7 @@
 }
 .piw-modal-footer {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 12px 20px; border-top: 1px solid #252c3c;
+    padding: 12px 20px; border-top: 1px solid #3d5280;
     background: #131720;
 }
 .piw-modal-footer .piw-btns-row { display: flex; gap: 8px; }
@@ -384,13 +408,18 @@
     border-radius: 8px; padding: 7px 16px; cursor: pointer; font-size: 12px;
     transition: all .15s;
 }
-.piw-modal-footer .piw-btn:hover { background: #252c3c; border-color: #3d4a6a; }
+.piw-modal-footer .piw-btn:hover { background: #3d5280; border-color: #3d4a6a; }
 .piw-modal-footer .piw-selected-info { font-size: 13px; color: #9aa3bf; }
 .piw-modal-footer .piw-btn-apply {
     background: linear-gradient(135deg, #5b7fff, #4a6adf); border: none;
     color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(91,127,255,.3);
 }
 .piw-modal-footer .piw-btn-apply:hover { background: linear-gradient(135deg, #6b8fff, #5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.4); }
+.piw-type-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px;
+    color: #fff; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
+    margin: 0 2px; vertical-align: middle;
+}
 `);
 
     // ========== UI ==========
@@ -406,31 +435,36 @@
         panel = document.createElement('div');
         panel.className = 'piw-panel';
         panel.innerHTML = `
-            <h3 style="display:flex;justify-content:space-between;align-items:center">Auto Hunt <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-minimize" class="piw-close" title="Minimizar">−</span> <span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
-            <div style="display:flex;gap:8px;justify-content:center;margin:2px 0 8px">
+            <h3>Auto Hunt <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-minimize" class="piw-close" title="Minimizar">−</span> <span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
+            <div class="piw-panel-inner">
+                <div style="display:flex;gap:8px;justify-content:center;margin:2px 0 6px">
                 <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 18px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
                 <button class="piw-btn" id="piw-stop" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;padding:7px 18px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(239,68,68,.3)" title="Parar e voltar pra cidade">■ Stop</button>
-            </div>
+                <button class="piw-btn" id="piw-reset" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(99,102,241,.3)" title="Resetar contadores">↻ Reset</button>
+                </div>
+            <div style="text-align:center;margin-bottom:6px"><div id="piw-status"></div></div>
             <div id="piw-minimized-view" style="display:none;text-align:center">
                 <div id="piw-start-hunt-mini" style="display:none;margin:4px 0">
                     <button class="piw-btn" id="piw-start-btn-mini" style="background:linear-gradient(135deg,#5b7fff,#4a6adf);color:#fff;padding:6px 16px;border:none;border-radius:8px;cursor:pointer;font-weight:700;box-shadow:0 2px 8px rgba(91,127,255,.3)">Começar caça</button>
                 </div>
-                <div class="piw-leader" id="piw-leader-mini" style="font-size:11px">Líder: —</div>
-                <div class="piw-shiny" id="piw-shiny-mini" style="font-size:11px">✨ Shiny: 0</div>
-                <div class="piw-stat" id="piw-kills-mini" style="font-size:12px;color:#ffd700">Abates: 0 / 100</div>
-                <div class="piw-stat" id="piw-caps-mini" style="font-size:12px;color:#4ade80">Capturas: 0 / 1</div>
-                <div class="piw-dual-progress">
-                    <div class="piw-dual-progress-item">
-                        <div class="piw-dual-progress-label">Abates</div>
-                        <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills-mini" style="width:0%"></div></div>
+                <div class="piw-card">
+                    <div class="piw-leader" id="piw-leader-mini"></div>
+                    <div class="piw-shiny" id="piw-shiny-mini">✨ Shiny: 0</div>
+                    <div class="piw-stat piw-kills" id="piw-kills-mini">Abates: 0 / 100</div>
+                    <div class="piw-stat piw-captures" id="piw-caps-mini">Capturas: 0 / 1</div>
+                    <div class="piw-dual-progress">
+                        <div class="piw-dual-progress-item">
+                            <div class="piw-dual-progress-label">Abates</div>
+                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills-mini" style="width:0%"></div></div>
+                        </div>
+                        <div class="piw-dual-progress-item">
+                            <div class="piw-dual-progress-label">Capturas</div>
+                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps-mini" style="width:0%"></div></div>
+                        </div>
                     </div>
-                    <div class="piw-dual-progress-item">
-                        <div class="piw-dual-progress-label">Capturas</div>
-                        <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps-mini" style="width:0%"></div></div>
-                    </div>
+                    <div class="piw-route" id="piw-route-mini" style="display:none">—</div>
+                    <div id="piw-hunting-display-mini" style="text-align:center;margin-top:6px"></div>
                 </div>
-                <div id="piw-route-mini" style="font-size:11px;color:#8899aa">—</div>
-                <div id="piw-status-mini"></div>
             </div>
             <div id="piw-full-content">
             <div class="piw-card">
@@ -449,7 +483,8 @@
                         <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps" style="width:0%"></div></div>
                     </div>
                 </div>
-                <div class="piw-route" id="piw-route">—</div>
+                <div class="piw-route" id="piw-route" style="display:none">—</div>
+                <div id="piw-hunting-display" style="text-align:center;margin-top:6px"></div>
             </div>
             <div class="piw-card">
                 <div class="piw-card-label">Opções</div>
@@ -478,15 +513,11 @@
                     </label>
                 </div>
             </div>
-            <div class="piw-card">
+                <div class="piw-card">
                 <div class="piw-card-label">Pokémon</div>
                 <button class="piw-btn piw-btn-primary" id="piw-open-pokedex" style="width:100%;padding:7px 0;font-size:12px;font-weight:600">Selecionar Pokémon</button>
                 <div class="piw-selected-tags" id="piw-selected-tags"></div>
                 <div class="piw-hint" id="piw-hint">Nenhum selecionado - troca qualquer rota</div>
-            </div>
-            <div class="piw-card" style="display:flex;flex-direction:column;align-items:center;gap:6px">
-                <button class="piw-btn" id="piw-reset" style="font-size:11px">Resetar contadores</button>
-                <div id="piw-status"></div>
             </div>
             </div>
             </div>
@@ -676,28 +707,26 @@
         }
         if (leaderEl) {
             if (leaderName) {
-                const types = leaderTypes.join(' / ');
-                leaderEl.textContent = `Líder: ${leaderName} (${types})`;
+                const imgUrl = getPokemonImageUrl(leaderPokeId, leaderName, true);
+                const fallbackUrl = getPokemonImageUrl(leaderPokeId, leaderName, false);
+                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${t}</span>`).join(' ');
+                leaderEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:10px">${imgUrl ? `<div style="width:52px;height:52px;border:2px solid #3d4a6a;border-radius:10px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:44px;height:44px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:6px"><span style="color:#e0e4ef;font-weight:700;font-size:15px">${leaderName}</span><span style="color:#9aa3bf;font-size:12px">Lv ${leaderLevel || '?'}</span></div><div style="display:flex;gap:4px;margin-top:3px">${typeBadges}</div></div></div>`;
             } else {
-                leaderEl.textContent = 'Líder: —';
+                leaderEl.textContent = '—';
             }
         }
         if (shinyEl) {
             shinyEl.textContent = `✨ Shiny: ${shinyCount}`;
         }
-        // Atualiza visão minimizada
-        const statusMini = document.getElementById('piw-status-mini');
-        if (statusMini) {
-            statusMini.innerHTML = enabled
-                ? '<span class="piw-badge piw-badge-running">● Rodando</span>'
-                : '<span class="piw-badge piw-badge-paused">○ Pausado</span>';
-        }
         const leaderMini = document.getElementById('piw-leader-mini');
         if (leaderMini) {
             if (leaderName) {
-                leaderMini.textContent = `Líder: ${leaderName} (${leaderTypes.join(' / ')})`;
+                const imgUrl = getPokemonImageUrl(leaderPokeId, leaderName, true);
+                const fallbackUrl = getPokemonImageUrl(leaderPokeId, leaderName, false);
+                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:8px;padding:1px 5px">${t}</span>`).join(' ');
+                leaderMini.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px">${imgUrl ? `<div style="width:38px;height:38px;border:2px solid #3d4a6a;border-radius:8px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:32px;height:32px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:5px"><span style="color:#e0e4ef;font-weight:700;font-size:13px">${leaderName}</span><span style="color:#9aa3bf;font-size:10px">Lv ${leaderLevel || '?'}</span></div><div style="display:flex;gap:3px;margin-top:2px">${typeBadges}</div></div></div>`;
             } else {
-                leaderMini.textContent = 'Líder: —';
+                leaderMini.textContent = '—';
             }
         }
         const shinyMini = document.getElementById('piw-shiny-mini');
@@ -714,6 +743,16 @@
         if (routeMini) routeMini.textContent = currentRoute || '—';
         const startMini = document.getElementById('piw-start-hunt-mini');
         if (startMini) startMini.style.display = (isCity() && selectedPokemon.length > 0 && !busy) ? 'block' : 'none';
+        const huntEl = document.getElementById('piw-hunting-display');
+        const huntElMini = document.getElementById('piw-hunting-display-mini');
+        const huntHTML = huntingPokemon ? (() => {
+            const creature = creatures.find(c => c.name?.toLowerCase() === huntingPokemon.toLowerCase());
+            const types = [creature?.type1, creature?.type2].filter(Boolean);
+            const typeBadges = types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${t}</span>`).join(' ');
+            return `<div style="display:flex;align-items:center;justify-content:center;gap:8px"><span style="color:#e0e4ef;font-weight:700;font-size:15px">${huntingPokemon}</span><span style="display:flex;gap:4px">${typeBadges}</span></div>`;
+        })() : '';
+        if (huntEl) huntEl.innerHTML = huntHTML;
+        if (huntElMini) huntElMini.innerHTML = huntHTML;
         saveState();
     }
 
@@ -871,10 +910,14 @@
     let pokedexModalTypeFilter = '';
     let pokedexModalShinyOnly = false;
 
-    function getPokemonImageUrl(pokeId, name) {
+    function getPokemonImageUrl(pokeId, name, animated = false) {
         if (!pokeId || pokeId <= 0) return '';
-        const url = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
-        if (pokeId < 10000) return url;
+        if (pokeId < 10000) {
+            if (animated && pokeId <= 649) {
+                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pokeId}.gif`;
+            }
+            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
+        }
         let bestBase = null;
         for (const c of creatures) {
             if (c.pokeId >= 10000 || !c.name) continue;
@@ -882,8 +925,13 @@
                 if (!bestBase || c.name.length > bestBase.name.length) bestBase = c;
             }
         }
-        if (bestBase) return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${bestBase.pokeId}.png`;
-        return url;
+        if (bestBase) {
+            if (animated && bestBase.pokeId <= 649) {
+                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${bestBase.pokeId}.gif`;
+            }
+            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${bestBase.pokeId}.png`;
+        }
+        return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
     }
 
     function openPokedexModal() {
@@ -906,6 +954,7 @@
                     <label><input type="checkbox" id="piw-pokedex-shiny" ${pokedexModalShinyOnly?'checked':''}> Shiny</label>
                     <span class="piw-modal-count" id="piw-pokedex-count"></span>
                 </div>
+                <div id="piw-type-hint" style="display:none;padding:8px 20px;font-size:12px;border-bottom:1px solid #1e2433"></div>
                 <div class="piw-modal-body">
                     <div class="piw-pokedex-grid" id="piw-pokedex-grid"></div>
                 </div>
@@ -1049,7 +1098,25 @@
         }
 
         searchInput.addEventListener('input', () => { pokedexModalFilter = searchInput.value; renderPokedex(); });
-        typeFilter.addEventListener('change', () => { pokedexModalTypeFilter = typeFilter.value; renderPokedex(); });
+        typeFilter.addEventListener('change', () => {
+            pokedexModalTypeFilter = typeFilter.value;
+            renderPokedex();
+            const hintEl = document.getElementById('piw-type-hint');
+            if (hintEl) {
+                if (typeFilter.value) {
+                    const weakTo = TYPE_WEAK_TO[typeFilter.value] || [];
+                    const superEff = TYPE_SUPER_EFFECTIVE[typeFilter.value] || [];
+                    let html = `<span style="color:#f87171;font-weight:600">⚔ Fraco contra:</span> `;
+                    html += weakTo.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'}">${t}</span>`).join(' ');
+                    html += `<br><span style="color:#4ade80;font-weight:600">🛡 Resistente a:</span> `;
+                    html += superEff.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'}">${t}</span>`).join(' ');
+                    hintEl.innerHTML = html;
+                    hintEl.style.display = 'block';
+                } else {
+                    hintEl.style.display = 'none';
+                }
+            }
+        });
         shinyCheck.addEventListener('change', () => { pokedexModalShinyOnly = shinyCheck.checked; renderPokedex(); });
 
         document.getElementById('piw-pokedex-select-all').addEventListener('click', () => {
@@ -1074,10 +1141,12 @@
             GM_setValue('piw_selectedPokemon', selectedPokemon);
             renderSelectedTags();
             renderPokemonList(document.getElementById('piw-search')?.value || '');
+            pokedexModalTypeFilter = '';
+            pokedexModalFilter = '';
             overlay.remove();
         });
 
-        document.getElementById('piw-pokedex-close').addEventListener('click', () => overlay.remove());
+        document.getElementById('piw-pokedex-close').addEventListener('click', () => { pokedexModalTypeFilter = ''; pokedexModalFilter = ''; overlay.remove(); });
 
         renderPokedex();
     }
@@ -1306,6 +1375,16 @@
         }
     });
 
+    setInterval(() => {
+        if (leaderName) {
+            const domLevel = getLeaderLevelFromDOM();
+            if (domLevel !== null && domLevel !== leaderLevel) {
+                leaderLevel = domLevel;
+                syncUI();
+            }
+        }
+    }, 3000);
+
     // Detecta novos shinies comparando a lista anterior
     function detectShinyFromPokes(pokeList) {
         const currentShinies = pokeList.filter(p => p.shiny);
@@ -1337,6 +1416,31 @@
         }
     }
 
+    function getLeaderLevelFromDOM() {
+        const allEls = document.querySelectorAll('*');
+        for (const el of allEls) {
+            const txt = el.textContent?.trim();
+            if (txt && txt.match(/^Lv\.?\s*\d+$/) && el.offsetParent !== null) {
+                const m = txt.match(/(\d+)/);
+                if (m) {
+                    const num = parseInt(m[1]);
+                    if (num > 0 && num < 10000) return num;
+                }
+            }
+        }
+        const teamSlots = document.querySelectorAll('[class*="team"] [class*="slot"], [class*="pokemon"]');
+        for (const slot of teamSlots) {
+            if (!slot.offsetParent) continue;
+            const txt = slot.textContent;
+            const m = txt.match(/Lv\.?\s*(\d+)/);
+            if (m) {
+                const num = parseInt(m[1]);
+                if (num > 0 && num < 10000) return num;
+            }
+        }
+        return null;
+    }
+
     // Atualiza o pokémon líder a partir da lista
     function updateLeader(pokeList) {
         const team = pokeList.filter(p => p.team).sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
@@ -1344,11 +1448,22 @@
         if (leader) {
             const newName = leader.name;
             const newTypes = [leader.type1, leader.type2].filter(Boolean);
-            if (newName !== leaderName || JSON.stringify(newTypes) !== JSON.stringify(leaderTypes)) {
-                leaderName = newName;
-                leaderTypes = newTypes;
-                GM_log('[AutoHunt] Líder detectado:', leaderName, '(' + leaderTypes.join('/') + ')');
-                syncUI();
+            let newLevel = leader.level || 0;
+            const domLevel = getLeaderLevelFromDOM();
+            if (domLevel !== null) newLevel = domLevel;
+            const newPokeId = leader.pokeId || (() => {
+                const c = creatures.find(c => c.name?.toLowerCase() === newName.toLowerCase());
+                return c?.pokeId || 0;
+            })();
+            GM_log('[AutoHunt] Leader raw:', JSON.stringify({ name: leader.name, level: leader.level, domLevel, pokeId: leader.pokeId }));
+            const changed = newName !== leaderName || JSON.stringify(newTypes) !== JSON.stringify(leaderTypes) || newLevel !== leaderLevel;
+            leaderName = newName;
+            leaderTypes = newTypes;
+            leaderPokeId = newPokeId;
+            leaderLevel = newLevel;
+            syncUI();
+            if (changed) {
+                GM_log('[AutoHunt] Líder detectado:', leaderName, '(' + leaderTypes.join('/') + ') Lv', leaderLevel);
                 renderPokemonList(document.getElementById('piw-search')?.value || '');
             }
         }
