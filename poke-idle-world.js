@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Poke Idle World - Auto Hunt Switcher
+// @name         Poke Helper
 // @namespace    http://tampermonkey.net/
 // @version      0.75.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
@@ -909,7 +909,7 @@
         panel.className = 'piw-panel';
         makeBringableToFront(panel);
         panel.innerHTML = `
-            <h3>Auto Hunt <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-minimize" class="piw-close" title="Minimizar">−</span> <span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
+            <h3>Poke Helper <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-minimize" class="piw-close" title="Minimizar">−</span> <span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
             <div class="piw-panel-inner">
                 <div style="display:flex;gap:6px;justify-content:center;margin:2px 0 6px">
                 <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 16px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
@@ -1025,16 +1025,27 @@
             syncUI();
         });
 
+    function applyOpacityAll(pct) {
+        const val = (pct ?? GM_getValue('piw_opacity', 100)) / 100;
+        const panelEl = document.querySelector('.piw-panel');
+        const infoWin = document.getElementById('piw-info-window');
+        const movesWin = document.getElementById('piw-moves-window');
+        const modalEl = document.querySelector('.piw-modal');
+
+        if (panelEl) panelEl.style.opacity = String(val);
+        if (infoWin) infoWin.style.opacity = String(val);
+        if (movesWin) movesWin.style.opacity = String(val);
+        if (modalEl) modalEl.style.opacity = String(val);
+    }
+
         const opacitySlider = panel.querySelector('#piw-opacity');
         if (opacitySlider) {
-            panel.style.opacity = opacitySlider.value / 100;
+            applyOpacityAll(opacitySlider.value);
             opacitySlider.addEventListener('input', () => {
-                const val = opacitySlider.value / 100;
-                panel.style.opacity = val;
-                opacitySlider.title = opacitySlider.value + '%';
-                GM_setValue('piw_opacity', parseInt(opacitySlider.value));
-                const modalEl = document.querySelector('.piw-modal');
-                if (modalEl) modalEl.style.opacity = val;
+                const opacityVal = parseInt(opacitySlider.value) || 100;
+                opacitySlider.title = opacityVal + '%';
+                GM_setValue('piw_opacity', opacityVal);
+                applyOpacityAll(opacityVal);
             });
         }
 
@@ -1268,6 +1279,7 @@
 
         makeBringableToFront(win);
         document.body.appendChild(win);
+        applyOpacityAll();
 
         win.querySelector('#piw-iw-close-btn').addEventListener('click', toggleInfoWindow);
 
@@ -1651,6 +1663,7 @@
 
         makeBringableToFront(win);
         document.body.appendChild(win);
+        applyOpacityAll();
 
         win.querySelector('#piw-mw-close-btn').addEventListener('click', toggleMovesWindow);
 
@@ -2054,6 +2067,7 @@
         bringToFront(overlay);
         makeBringableToFront(overlay);
         makeBringableToFront(modal);
+        applyOpacityAll();
 
         const modal = overlay.querySelector('.piw-modal');
         const modalHeader = modal.querySelector('.piw-modal-header');
@@ -2801,7 +2815,7 @@
                         socket.send(JSON.stringify({ type: 'pokes-get' }));
                     }
                 }, 3000);
-                GM_log('[AutoHunt] Painel criado');
+                GM_log('[Poke Helper] Painel criado');
             }
         }, 300);
     }
@@ -2811,5 +2825,5 @@
     else
         init();
 
-    GM_log('[AutoHunt] Carregado v0.11.0. Kills:', KILL_TARGET, 'Capturas:', CAPTURE_TARGET);
+    GM_log('[Poke Helper] Carregado v0.75.0.');
 })();
