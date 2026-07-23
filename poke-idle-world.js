@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.20.0
+// @version      0.21.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
 // @homepage     https://github.com/AndreSoares92/Poke-Idle-World
-// @icon         https://poke.idleworld.online/favicon.ico
+// @icon         https://github.githubassets.com/favicons/favicon.svg
 // @updateURL    https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world.js
 // @downloadURL  https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world.js
 // @grant        GM_setValue
