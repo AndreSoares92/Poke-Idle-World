@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Idle World - Auto Hunt Switcher
 // @namespace    http://tampermonkey.net/
-// @version      0.64.0
+// @version      0.66.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -270,19 +270,22 @@
     max-height: 120px; overflow-y: auto; border: 1px solid #3d5280;
     border-radius: 8px; margin-bottom: 6px; background: #131720;
 }
-.piw-panel .piw-pokemon-item {
+.piw-pokemon-item {
     padding: 4px 8px; cursor: pointer; font-size: 12px;
     display: flex; align-items: center; gap: 6px;
 }
-.piw-panel .piw-pokemon-item:hover { background: #1a1f2e; }
-.piw-panel .piw-pokemon-item.selected { background: #14211c; color: #4ade80; }
-.piw-panel .piw-pokemon-item .piw-check { width: 14px; text-align: center; }
+.piw-pokemon-item:hover { background: #1a1f2e; }
+.piw-pokemon-item.selected { background: #14211c; color: #4ade80; }
+.piw-pokemon-item .piw-check { width: 14px; text-align: center; }
+.piw-hunt-now { margin-left: auto; background: none; border: 1px solid #3d4a6a; color: #9aa3bf; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; transition: all .15s; opacity: 0; flex-shrink: 0; }
+.piw-pokemon-item:hover .piw-hunt-now { opacity: 1; }
+.piw-hunt-now:hover { background: #5b7fff; border-color: #5b7fff; color: #fff; }
 .piw-panel .piw-filter-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; }
 .piw-panel .piw-filter-row input[type=checkbox] { width: auto; accent-color: #c084fc; }
 .piw-panel .piw-pagination { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; }
 .piw-panel .piw-pagination .piw-btn { padding: 2px 8px; font-size: 10px; }
 .piw-panel .piw-pagination .piw-page-info { color: #5a6380; }
-.piw-panel .piw-pokemon-item .piw-shiny-icon { color: #f0c040; margin-left: 4px; }
+.piw-pokemon-item .piw-shiny-icon { color: #f0c040; margin-left: 4px; }
 .piw-panel .piw-btns-row { display: flex; gap: 6px; margin-bottom: 4px; }
 .piw-panel .piw-btns-row .piw-btn { flex: 1; font-size: 10px; padding: 3px 6px; }
 
@@ -892,11 +895,13 @@
             return `<div class="piw-pokemon-item${sel?' selected':''}" data-name="${pokemon.name}">
                 <span class="piw-check">${sel ? '✓' : ''}</span>
                 ${pokemon.name}${lvlText}${shinyIcon}
+                <button class="piw-hunt-now" data-name="${pokemon.name}" title="Caçar agora">⚔</button>
             </div>`;
         }).join('');
 
         list.querySelectorAll('.piw-pokemon-item').forEach(item => {
-            item.addEventListener('click', () => {
+            item.addEventListener('click', (e) => {
+                if (e.target.closest('.piw-hunt-now')) return;
                 const name = item.dataset.name;
                 if (selectedPokemon.includes(name)) {
                     selectedPokemon = selectedPokemon.filter(n => n !== name);
@@ -906,6 +911,23 @@
                 GM_setValue('piw_selectedPokemon', selectedPokemon);
                 renderSelectedTags();
                 renderPokemonList(document.getElementById('piw-search')?.value || '');
+            });
+        });
+        list.querySelectorAll('.piw-hunt-now').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const name = btn.dataset.name;
+                selectedPokemon = [name];
+                GM_setValue('piw_selectedPokemon', selectedPokemon);
+                GM_setValue('piw_enabled', true);
+                enabled = true;
+                const overlayEl = document.querySelector('.piw-modal-overlay');
+                if (overlayEl) { pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false; overlayEl.remove(); }
+                if (isCity()) {
+                    doSwitch();
+                } else {
+                    syncUI();
+                }
             });
         });
     }
