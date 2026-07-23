@@ -6,6 +6,8 @@
 // @author       You
 // @match        https://poke.idleworld.online/play
 // @icon         https://poke.idleworld.online/favicon.ico
+// @updateURL    https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world-auto-hunt.js
+// @downloadURL  https://raw.githubusercontent.com/AndreSoares92/Poke-Idle-World/main/poke-idle-world-auto-hunt.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
