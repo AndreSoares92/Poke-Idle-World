@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.84.0
+// @version      0.85.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1883,8 +1883,30 @@
                 pokeId: creature?.pokeId || 0,
                 type1: creature?.type1 || '',
                 type2: creature?.type2 || '',
+                area: r.area || 'map'
             });
         });
+
+        // Adiciona Pokémons de Outland / área de creatures se disponíveis
+        if (creatures && creatures.length > 0) {
+            for (const c of creatures) {
+                if (!c.name || c.pokeId >= 10000) continue;
+                const isOutlandMon = c.area === 'outland' || c.outland || c.isOutland || /outland/i.test(c.location || '') || /outland/i.test(c.map || '');
+                if (isOutlandMon) {
+                    const key = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (!pokemonMap.has(key)) {
+                        pokemonMap.set(key, {
+                            name: c.name,
+                            level: c.level || 1,
+                            pokeId: c.pokeId || c.id || 0,
+                            type1: c.type1 || '',
+                            type2: c.type2 || '',
+                            area: 'outland'
+                        });
+                    }
+                }
+            }
+        }
 
         for (const city of CITY_SLUGS) pokemonMap.delete(city);
         let pokemonArray = [...pokemonMap.values()];
@@ -2233,42 +2255,55 @@
             GM_log('[AutoHunt] Erro ao buscar creatures.json:', e);
         }
 
-        try {
-            // Busca rotas do mapa (incluindo Outland e todas as áreas)
-            const markersResp = await fetch('/api/game/map-markers');
-            if (markersResp.ok) {
-                const data = await markersResp.json();
-                let rawHunts = [];
-                if (Array.isArray(data)) {
-                    rawHunts = data;
-                } else if (typeof data === 'object' && data !== null) {
-                    for (const [key, val] of Object.entries(data)) {
-                        if (Array.isArray(val)) {
-                            const isOutlandKey = key.toLowerCase().includes('outland');
-                            val.forEach(item => {
-                                if (item && typeof item === 'object') {
-                                    rawHunts.push({
-                                        ...item,
-                                        area: item.area || (isOutlandKey ? 'outland' : undefined)
-                                    });
-                                }
-                            });
+        // Busca rotas de múltiplos endpoints do mapa (Kanto, Outland, etc.)
+        const mapEndpoints = [
+            '/api/game/map-markers',
+            '/api/game/outland-markers',
+            '/api/game/outland',
+            '/api/game/outlands',
+            '/api/game/map-markers?area=outland',
+            '/game/outland.json',
+            '/game/hunts.json'
+        ];
+
+        const seenSlugs = new Set(routes.map(r => r.slug || r.name));
+
+        for (const ep of mapEndpoints) {
+            try {
+                const markersResp = await fetch(ep);
+                if (markersResp.ok) {
+                    const data = await markersResp.json();
+                    let rawHunts = [];
+                    if (Array.isArray(data)) {
+                        rawHunts = data;
+                    } else if (typeof data === 'object' && data !== null) {
+                        for (const [key, val] of Object.entries(data)) {
+                            if (Array.isArray(val)) {
+                                const isOutlandKey = key.toLowerCase().includes('outland') || ep.includes('outland');
+                                val.forEach(item => {
+                                    if (item && typeof item === 'object') {
+                                        rawHunts.push({
+                                            ...item,
+                                            area: item.area || (isOutlandKey ? 'outland' : undefined)
+                                        });
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    for (const h of rawHunts) {
+                        if (h && h.name && h.slug !== 'cerulean') {
+                            const key = (h.slug || h.name).toLowerCase().replace(/[^a-z0-9]/g, '');
+                            if (!seenSlugs.has(key)) {
+                                seenSlugs.add(key);
+                                routes.push(h);
+                            }
                         }
                     }
                 }
-                const seenSlugs = new Set();
-                routes = [];
-                for (const h of rawHunts) {
-                    if (h && h.name && h.slug !== 'cerulean' && !seenSlugs.has(h.slug || h.name)) {
-                        seenSlugs.add(h.slug || h.name);
-                        routes.push(h);
-                    }
-                }
-                GM_log('[AutoHunt] Rotas (incluindo Outland) carregadas:', routes.length);
-            }
-        } catch(e) {
-            GM_log('[AutoHunt] Erro ao buscar map-markers:', e);
+            } catch(e) {}
         }
+        GM_log('[AutoHunt] Rotas totais (incluindo Outland) carregadas:', routes.length);
     }
 
     // Escaneia marcadores de rotas/outland direto do DOM do jogo
