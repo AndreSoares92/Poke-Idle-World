@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.75.0
+// @version      0.76.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1902,36 +1902,24 @@
         };
         const pokemonMap = new Map();
 
-        if (creatures && creatures.length > 0) {
-            for (const c of creatures) {
-                if (!c.name || c.pokeId >= 10000) continue;
-                const key = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                const routeMatch = routes.find(r => r.name?.toLowerCase() === c.name.toLowerCase());
-                pokemonMap.set(key, {
-                    name: c.name,
-                    level: routeMatch?.level || c.level || 1,
-                    pokeId: c.pokeId || 0,
-                    type1: c.type1 || '',
-                    type2: c.type2 || '',
-                });
-            }
-        } else {
-            routes.forEach(r => {
-                if (r.name) {
-                    const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const mappedName = NAME_MAP[key] || r.name;
-                    const creature = creatures.find(c => c.name?.toLowerCase() === mappedName.toLowerCase())
-                        || creatures.find(c => c.name?.toLowerCase().replace(/[^a-z0-9]/g, '') === key);
-                    pokemonMap.set(key, {
-                        name: r.name,
-                        level: r.level || 0,
-                        pokeId: creature?.pokeId || 0,
-                        type1: creature?.type1 || '',
-                        type2: creature?.type2 || '',
-                    });
-                }
+        // Sempre usa routes como fonte primária — só aparecem pokémon caçáveis no mapa.
+        // Dados de tipo e sprite são buscados em creatures como enriquecimento.
+        routes.forEach(r => {
+            if (!r.name) return;
+            const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const mappedName = NAME_MAP[key] || r.name;
+            const creature = creatures.find(c => c.name?.toLowerCase() === mappedName.toLowerCase())
+                || creatures.find(c => c.name?.toLowerCase().replace(/[^a-z0-9]/g, '') === key);
+            // Ignora formas alternativas (pokeId >= 10000)
+            if (creature && creature.pokeId >= 10000) return;
+            pokemonMap.set(key, {
+                name: r.name,
+                level: r.level || creature?.level || 1,
+                pokeId: creature?.pokeId || 0,
+                type1: creature?.type1 || '',
+                type2: creature?.type2 || '',
             });
-        }
+        });
 
         for (const city of CITY_SLUGS) pokemonMap.delete(city);
         let pokemonArray = [...pokemonMap.values()];
@@ -2091,16 +2079,20 @@
         applyOpacityAll();
 
         const savedModalSize = GM_getValue('piw_modalSize', null);
-        if (savedModalSize) {
-            modal.style.width = savedModalSize.w;
-            modal.style.height = savedModalSize.h;
-            modal.style.left = `calc(50vw - ${parseInt(savedModalSize.w)/2}px)`;
-            modal.style.top = `calc(50vh - ${parseInt(savedModalSize.h)/2}px)`;
+        if (savedModalSize && savedModalSize.w && savedModalSize.h) {
+            modal.style.width  = savedModalSize.w + 'px';
+            modal.style.height = savedModalSize.h + 'px';
         }
         const savedModalPos = GM_getValue('piw_modalPos', null);
         if (savedModalPos) {
-            modal.style.left = savedModalPos.left;
-            modal.style.top = savedModalPos.top;
+            const mpl = parseFloat(savedModalPos.left);
+            const mpt = parseFloat(savedModalPos.top);
+            if (!isNaN(mpl)) { modal.style.left = mpl + 'px'; modal.style.right = 'auto'; }
+            if (!isNaN(mpt)) { modal.style.top  = mpt + 'px'; modal.style.bottom = 'auto'; }
+        } else if (savedModalSize && savedModalSize.w && savedModalSize.h) {
+            // Centraliza baseado no tamanho salvo se não houver posição salva
+            modal.style.left = `calc(50vw - ${savedModalSize.w / 2}px)`;
+            modal.style.top  = `calc(50vh - ${savedModalSize.h / 2}px)`;
         }
 
         makeDraggable(modal, modalHeader, 'piw_modalPos');
