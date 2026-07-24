@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -2058,7 +2058,7 @@
     let pokedexModalTypeFilter = '';
     let pokedexModalShinyOnly = false;
     let pokedexModalWeakOnly = false;
-    let pokedexSortOrder = 'level_asc';
+    let pokedexSortOrder = 'id_asc';
 
     function getPokemonImageUrl(pokeId, name, animated = false) {
         if (!pokeId || pokeId <= 0) {
