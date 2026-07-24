@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.85.0
+// @version      0.92.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -727,7 +727,7 @@
 }
 .piw-poke-card.selected .piw-poke-check { display: flex; }
 .piw-poke-card .piw-poke-shiny {
-    position: absolute; top: 6px; right: 6px; font-size: 12px;
+    position: absolute; bottom: 6px; right: 6px; font-size: 12px;
 }
 .piw-hunt-card-btn { display: none; position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; z-index: 2; box-shadow: 0 2px 8px rgba(91,127,255,.3); }
 .piw-poke-card:hover .piw-hunt-card-btn { display: block; }
@@ -1856,6 +1856,17 @@
         });
     }
 
+    // Set de IDs de lendários/míticos/não-capturáveis que não possuem rota de caça no mapa
+    const NON_HUNTABLE_SPECIES_IDS = new Set([
+        144, 145, 146, 150, 151, // Articuno, Zapdos, Moltres, Mewtwo, Mew
+        243, 244, 245, 249, 250, 251, // Raikou, Entei, Suicune, Lugia, Ho-Oh, Celebi
+        377, 378, 379, 380, 381, 382, 383, 384, 385, 386, // Regis, Latios/as, Weather, Jirachi, Deoxys
+        480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493, // Gen 4 Legendaries/Mythicals
+        638, 639, 640, 641, 642, 643, 644, 645, 646, 647, 648, 649, // Gen 5 Legendaries
+        716, 717, 718, 719, 720, 721, // Gen 6 Legendaries
+        785, 786, 787, 788, 789, 790, 791, 792, 800, 801, 802, 807, 808, 809 // Gen 7 Legendaries
+    ]);
+
     function getFilteredPokemonList(filter) {
         const NAME_MAP = {
             'nidoranfe': 'Nidoran Female',
@@ -1867,46 +1878,77 @@
         };
         const pokemonMap = new Map();
 
-        // Sempre usa routes como fonte primária — só aparecem pokémon caçáveis no mapa.
-        // Dados de tipo e sprite são buscados em creatures como enriquecimento.
-        routes.forEach(r => {
-            if (!r.name) return;
-            const key = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const mappedName = NAME_MAP[key] || r.name;
-            const creature = creatures.find(c => c.name?.toLowerCase() === mappedName.toLowerCase())
-                || creatures.find(c => c.name?.toLowerCase().replace(/[^a-z0-9]/g, '') === key);
-            // Ignora formas alternativas (pokeId >= 10000)
-            if (creature && creature.pokeId >= 10000) return;
-            pokemonMap.set(key, {
-                name: r.name,
-                level: r.level || creature?.level || 1,
-                pokeId: creature?.pokeId || 0,
-                type1: creature?.type1 || '',
-                type2: creature?.type2 || '',
-                area: r.area || 'map'
-            });
-        });
+        const getNormalizedKey = (name) => {
+            if (!name) return '';
+            const rawKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const mapped = NAME_MAP[rawKey] || name;
+            return mapped.toLowerCase().replace(/[^a-z0-9]/g, '');
+        };
 
-        // Adiciona Pokémons de Outland / área de creatures se disponíveis
+        // 1. Popula com espécies válidas de criaturas que não são lendárias sem rota
         if (creatures && creatures.length > 0) {
             for (const c of creatures) {
                 if (!c.name || c.pokeId >= 10000) continue;
-                const isOutlandMon = c.area === 'outland' || c.outland || c.isOutland || /outland/i.test(c.location || '') || /outland/i.test(c.map || '');
-                if (isOutlandMon) {
-                    const key = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    if (!pokemonMap.has(key)) {
-                        pokemonMap.set(key, {
-                            name: c.name,
-                            level: c.level || 1,
-                            pokeId: c.pokeId || c.id || 0,
-                            type1: c.type1 || '',
-                            type2: c.type2 || '',
-                            area: 'outland'
-                        });
-                    }
+                const key = getNormalizedKey(c.name);
+                const routeMatch = routes.find(r => getNormalizedKey(r.name) === key);
+                const isNonHuntable = NON_HUNTABLE_SPECIES_IDS.has(c.pokeId) || c.catchable === false || c.wild === false || c.disabled === true;
+                if (isNonHuntable && !routeMatch) continue;
+
+                pokemonMap.set(key, {
+                    name: c.name,
+                    level: routeMatch?.level || c.level || 1,
+                    pokeId: c.pokeId || c.id || 0,
+                    type1: c.type1 || '',
+                    type2: c.type2 || '',
+                    area: routeMatch?.area || 'map'
+                });
+            }
+        } else {
+            // Fallback para rotas do mapa se criaturas ainda não responderam
+            routes.forEach(r => {
+                if (!r.name) return;
+                const key = getNormalizedKey(r.name);
+                const rawKey = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                pokemonMap.set(key, {
+                    name: NAME_MAP[rawKey] || r.name,
+                    level: r.level || 1,
+                    pokeId: 0,
+                    type1: '',
+                    type2: '',
+                    area: r.area || 'map'
+                });
+            });
+        }
+
+        // 2. Garante que qualquer rota vinda do DOM/API também esteja presente e atualize dados
+        routes.forEach(r => {
+            if (!r.name) return;
+            const key = getNormalizedKey(r.name);
+            const creature = creatures.find(c => getNormalizedKey(c.name) === key);
+            const rawKey = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const correctName = creature?.name || NAME_MAP[rawKey] || r.name;
+
+            if (!pokemonMap.has(key)) {
+                pokemonMap.set(key, {
+                    name: correctName,
+                    level: r.level || 1,
+                    pokeId: creature?.pokeId || creature?.id || 0,
+                    type1: creature?.type1 || '',
+                    type2: creature?.type2 || '',
+                    area: r.area || 'map'
+                });
+            } else {
+                const existing = pokemonMap.get(key);
+                if (r.level) existing.level = r.level;
+                if (r.area) existing.area = r.area;
+                if (creature && (!existing.pokeId || existing.pokeId === 0)) {
+                    existing.pokeId = creature.pokeId || creature.id || 0;
+                    existing.name = creature.name;
+                    existing.type1 = creature.type1 || '';
+                    existing.type2 = creature.type2 || '';
                 }
             }
-        }
+        });
 
         for (const city of CITY_SLUGS) pokemonMap.delete(city);
         let pokemonArray = [...pokemonMap.values()];
@@ -2743,17 +2785,16 @@
                 for (const pokemon of selectedPokemon) {
                     if (found) break;
 
-                    // Busca a rota nos dados do mapa
+                    // Busca a rota nos dados do mapa se existir
                     const routeData = routes.find(r => r.name?.toLowerCase() === pokemon.toLowerCase());
-                    if (!routeData) continue;
 
-                    // Se tem área, clica na aba do mapa correto
-                    if (routeData.area) {
+                    // Se tem área conhecida, clica na aba do mapa correspondente
+                    if (routeData && routeData.area) {
                         const areaTabs = document.querySelectorAll('button.map-area');
                         for (const tab of areaTabs) {
                             const tabText = tab.textContent?.toLowerCase() || '';
                             const areaName = routeData.area.toLowerCase();
-                            if (tabText.includes(areaName) || tabText.includes('outland') && areaName === 'outland') {
+                            if (tabText.includes(areaName) || (tabText.includes('outland') && areaName === 'outland')) {
                                 GM_log('[AutoHunt] Clicando aba:', tab.textContent.trim());
                                 tab.click();
                                 await sleep(600);
@@ -2762,31 +2803,56 @@
                         }
                     }
 
-                    // Agora procura o marcador na área atual
-                    const markers = document.querySelectorAll('button.hunt-marker');
+                    // Tenta encontrar o marcador no mapa visível
+                    let targetMarker = null;
+                    let markers = document.querySelectorAll('button.hunt-marker');
                     for (const marker of markers) {
                         const nameEl = marker.querySelector('.hunt-name');
                         if (!nameEl) continue;
                         const name = nameEl.textContent.trim();
-                        const isHere = marker.classList.contains('here');
-                        if (name.toLowerCase() === pokemon.toLowerCase() && !isHere) {
-                            // Se mudou de pokémon, zera contadores
-                            if (huntingPokemon !== pokemon) {
-                                killCount = 0;
-                                captureCount = 0;
-                                huntingPokemon = pokemon;
-                                // Reseta contadores individuais deste pokémon
-                                const slug = pokemon.toLowerCase().replace(/\s+/g, '-');
-                                GM_setValue('piw_kills_' + slug, 0);
-                                GM_setValue('piw_captures_' + slug, 0);
-                                GM_log('[AutoHunt] Novo pokémon:', pokemon, '- contadores resetados.');
-                            }
-                            GM_log('[AutoHunt] Clicando rota:', name, '(pokemon selecionado)');
-                            marker.click();
-                            currentRoute = name;
-                            found = true;
+                        if (name.toLowerCase() === pokemon.toLowerCase() && !marker.classList.contains('here')) {
+                            targetMarker = marker;
                             break;
                         }
+                    }
+
+                    // Se não achou na aba atual, varre as abas do mapa (ex: Outland / Kanto)
+                    if (!targetMarker) {
+                        const areaTabs = document.querySelectorAll('button.map-area');
+                        for (const tab of areaTabs) {
+                            if (tab.classList.contains('active')) continue;
+                            tab.click();
+                            await sleep(500);
+                            markers = document.querySelectorAll('button.hunt-marker');
+                            for (const marker of markers) {
+                                const nameEl = marker.querySelector('.hunt-name');
+                                if (!nameEl) continue;
+                                const name = nameEl.textContent.trim();
+                                if (name.toLowerCase() === pokemon.toLowerCase() && !marker.classList.contains('here')) {
+                                    targetMarker = marker;
+                                    break;
+                                }
+                            }
+                            if (targetMarker) break;
+                        }
+                    }
+
+                    if (targetMarker) {
+                        // Se mudou de pokémon, zera contadores
+                        if (huntingPokemon !== pokemon) {
+                            killCount = 0;
+                            captureCount = 0;
+                            huntingPokemon = pokemon;
+                            const slug = pokemon.toLowerCase().replace(/\s+/g, '-');
+                            GM_setValue('piw_kills_' + slug, 0);
+                            GM_setValue('piw_captures_' + slug, 0);
+                            GM_log('[AutoHunt] Novo pokémon:', pokemon, '- contadores resetados.');
+                        }
+                        GM_log('[AutoHunt] Clicando rota:', pokemon);
+                        targetMarker.click();
+                        currentRoute = pokemon;
+                        found = true;
+                        break;
                     }
                 }
             } else {
