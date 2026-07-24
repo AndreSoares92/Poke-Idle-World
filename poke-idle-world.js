@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.76.0
+// @version      0.77.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -472,13 +472,14 @@
     border: 1px solid rgba(132,144,255,.3); border-radius: 14px;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 13px; line-height: 1.4;
-    width: 340px; min-width: 300px;
+    width: 340px; min-width: 280px; min-height: 200px;
     box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
     backdrop-filter: blur(10px); user-select: none;
-    max-height: 85vh; overflow: hidden;
+    max-height: 90vh; overflow: hidden;
+    display: flex; flex-direction: column;
 }
 .piw-panel-inner {
-    padding: 14px; overflow-y: auto; max-height: calc(85vh - 42px);
+    padding: 14px; overflow-y: auto; flex: 1 1 auto; min-height: 0;
     scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05);
 }
 .piw-panel-inner::-webkit-scrollbar { width: 6px; }
@@ -1010,7 +1011,7 @@
         panel.className = 'piw-panel';
         makeBringableToFront(panel);
         panel.innerHTML = `
-            <h3>Poke Helper <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-minimize" class="piw-close" title="Minimizar">−</span> <span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
+            <h3>Poke Helper <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
             <div class="piw-panel-inner">
                 <div style="display:flex;gap:6px;justify-content:center;margin:2px 0 6px">
                 <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 16px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
@@ -1018,30 +1019,6 @@
                 <button class="piw-btn" id="piw-reset" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(99,102,241,.3)" title="Resetar contadores">↻ Reset</button>
                 </div>
             <div style="text-align:center;margin-bottom:6px"><div id="piw-status"></div></div>
-            <div id="piw-minimized-view" style="display:none;text-align:center">
-                <div id="piw-start-hunt-mini" style="display:none;margin:4px 0">
-                    <button class="piw-btn" id="piw-start-btn-mini" style="background:linear-gradient(135deg,#5b7fff,#4a6adf);color:#fff;padding:6px 16px;border:none;border-radius:8px;cursor:pointer;font-weight:700;box-shadow:0 2px 8px rgba(91,127,255,.3)">Começar caça</button>
-                </div>
-                <div class="piw-card">
-                    <div class="piw-leader" id="piw-leader-mini"></div>
-                    <div class="piw-shiny" id="piw-shiny-mini">✨ Shiny: 0</div>
-                    <div class="piw-stat piw-kills" id="piw-kills-mini">Abates: 0 / 100</div>
-                    <div class="piw-stat piw-captures" id="piw-caps-mini">Capturas: 0 / 1</div>
-                    <div class="piw-dual-progress">
-                        <div class="piw-dual-progress-item">
-                            <div class="piw-dual-progress-label">Abates</div>
-                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills-mini" style="width:0%"></div></div>
-                        </div>
-                        <div class="piw-dual-progress-item">
-                            <div class="piw-dual-progress-label">Capturas</div>
-                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps-mini" style="width:0%"></div></div>
-                        </div>
-                    </div>
-                    <div class="piw-route" id="piw-route-mini" style="display:none">—</div>
-                    <div id="piw-hunting-display-mini" style="text-align:center;margin-top:6px"></div>
-                </div>
-            </div>
-            <div id="piw-full-content">
             <div class="piw-card">
                 <div class="piw-city" id="piw-city-full" style="display:none">Cidade - auto-switch pausado</div>
                 <div class="piw-leader" id="piw-leader">Líder: —</div>
@@ -1102,29 +1079,10 @@
                 <div class="piw-hint" id="piw-hint">Nenhum selecionado</div>
             </div>
             </div>
-            </div>
-            </div>
+            <div class="piw-win-resize" title="Arraste para redimensionar"></div>
         `;
 
-        // Event listeners
-        // Minimizar/maximizar
-        let minimized = GM_getValue('piw_minimized', false);
-        const miniView = panel.querySelector('#piw-minimized-view');
-        const fullContent = panel.querySelector('#piw-full-content');
-        const minBtn = panel.querySelector('#piw-minimize');
-        if (minimized) {
-            miniView.style.display = '';
-            fullContent.style.display = 'none';
-            minBtn.textContent = '+';
-        }
-        minBtn.addEventListener('click', () => {
-            minimized = !minimized;
-            GM_setValue('piw_minimized', minimized);
-            miniView.style.display = minimized ? '' : 'none';
-            fullContent.style.display = minimized ? 'none' : '';
-            minBtn.textContent = minimized ? '+' : '−';
-            syncUI();
-        });
+
 
         const opacitySlider = panel.querySelector('#piw-opacity');
         if (opacitySlider) {
@@ -1153,17 +1111,7 @@
             reopenBtn.style.display = 'none';
         });
 
-        // Botão Começar caça (visão minimizada)
-        const startBtnMini = panel.querySelector('#piw-start-btn-mini');
-        if (startBtnMini) {
-            startBtnMini.onclick = () => {
-                if (!busy && selectedPokemon.length > 0) {
-                    enabled = true;
-                    GM_setValue('piw_enabled', true);
-                    doSwitch();
-                }
-            };
-        }
+
 
         // Botão Play - iniciar caça
         panel.querySelector('#piw-play').addEventListener('click', () => {
@@ -1233,8 +1181,17 @@
             if (!isNaN(pt)) { panel.style.top = pt + 'px'; panel.style.bottom = 'auto'; }
         }
 
+        const savedSize = GM_getValue('piw_panelSize', null);
+        if (savedSize && savedSize.w && savedSize.h) {
+            panel.style.width = savedSize.w + 'px';
+            panel.style.height = savedSize.h + 'px';
+        }
+
         const title = panel.querySelector('h3');
         makeDraggable(panel, title, 'piw_panelPos');
+
+        const resizeHandle = panel.querySelector('.piw-win-resize');
+        makeResizable(panel, resizeHandle, 'piw_panelSize', 280, 200);
 
         renderSelectedTags();
         renderPokemonList('');
