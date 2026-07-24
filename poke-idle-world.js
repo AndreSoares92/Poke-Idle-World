@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.80.0
+// @version      0.82.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -479,7 +479,7 @@
     display: flex; flex-direction: column;
 }
 .piw-panel-inner {
-    padding: 14px; overflow-y: auto; flex: 1 1 auto; min-height: 0;
+    padding: 14px; overflow-y: auto; flex: 1 1 auto; min-height: 0; margin-bottom: 12px;
     scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05);
 }
 .piw-panel-inner::-webkit-scrollbar { width: 6px; }
@@ -630,9 +630,14 @@
     min-width: 500px; min-height: 400px; color: #e7ebf7;
     font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
 }
-.piw-modal-resize { position: absolute; bottom: 0; right: 0; width: 18px; height: 18px; cursor: nwse-resize; border-radius: 0 0 16px 0; opacity: .4; }
-.piw-modal-resize:hover { opacity: .9; }
-.piw-modal-resize::after { content: ''; position: absolute; bottom: 4px; right: 4px; width: 8px; height: 8px; border-right: 2px solid #a5b4fc; border-bottom: 2px solid #a5b4fc; }
+.piw-modal-resize {
+    position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
+    cursor: nwse-resize; z-index: 30; opacity: .6;
+    background: repeating-linear-gradient(135deg, transparent 0 3px, rgba(147,160,232,.85) 3px 4.5px);
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    transition: opacity .15s, transform .15s;
+}
+.piw-modal-resize:hover { opacity: 1; transform: scale(1.1); }
 .piw-modal-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 18px; border-bottom: 1px solid rgba(132,144,255,.22);
@@ -674,7 +679,7 @@
     font-size: 11px; color: #9aa3bf; white-space: nowrap;
 }
 .piw-modal-body {
-    flex: 1; overflow-y: auto; padding: 16px 20px;
+    flex: 1; overflow-y: auto; padding: 16px 20px; margin-bottom: 12px;
     scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05);
 }
 .piw-modal-body::-webkit-scrollbar { width: 6px; }
@@ -835,9 +840,9 @@
 .piw-mw-dot { width: 8px; height: 8px; border-radius: 50%; background: #60a5fa; box-shadow: 0 0 10px #60a5fa; }
 .piw-mw-close { cursor: pointer; color: #a5b4fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-mw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05); }
+.piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05); }
 
-.piw-mw-body { padding: 10px 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05); }
+.piw-mw-body { padding: 10px 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05); }
 
 .piw-iw-body::-webkit-scrollbar,
 .piw-mw-body::-webkit-scrollbar {
@@ -859,13 +864,13 @@
 }
 
 .piw-win-resize {
-    position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
-    cursor: nwse-resize; z-index: 10; opacity: .55;
-    background: repeating-linear-gradient(135deg, transparent 0 3.5px, rgba(190,200,255,.85) 3.5px 5px);
-    clip-path: polygon(100% 20%, 100% 100%, 20% 100%);
-    transition: opacity .15s;
+    position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
+    cursor: nwse-resize; z-index: 30; opacity: .6;
+    background: repeating-linear-gradient(135deg, transparent 0 3px, rgba(147,160,232,.85) 3px 4.5px);
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    transition: opacity .15s, transform .15s;
 }
-.piw-win-resize:hover { opacity: 1; }
+.piw-win-resize:hover { opacity: 1; transform: scale(1.1); }
 
 .piw-mw-sub { font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #93a0e8; }
 .piw-mw-move { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 9px; border-radius: 8px; margin: 4px 0; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); flex-wrap: wrap; }
