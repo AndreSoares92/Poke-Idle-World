@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.0.6
+// @version      1.1.2
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -230,7 +230,8 @@
     function getTypeLabelPT(t) {
         if (!t) return '';
         const key = String(t).toLowerCase().trim();
-        return TYPE_PT_MAP[key] || t;
+        const label = TYPE_PT_MAP[key] || t;
+        return String(label).toUpperCase();
     }
 
     const CLANS_MAP = {
@@ -740,7 +741,7 @@
 }
 .piw-poke-card.selected .piw-poke-check { display: flex; }
 .piw-poke-card .piw-poke-shiny {
-    position: absolute; bottom: 6px; right: 6px; font-size: 12px;
+    position: absolute; top: 6px; left: 6px; font-size: 12px; z-index: 1;
 }
 .piw-hunt-card-btn { display: none; position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; z-index: 2; box-shadow: 0 2px 8px rgba(91,127,255,.3); }
 .piw-poke-card:hover .piw-hunt-card-btn { display: block; }
@@ -765,7 +766,7 @@
 .piw-modal-footer .piw-btn-apply:hover { background: linear-gradient(135deg, #6b8fff, #5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.4); }
 .piw-type-badge {
     display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px;
-    color: #fff; font-weight: 600; letter-spacing: .3px; text-transform: uppercase;
+    color: #fff; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
     margin: 0 2px; vertical-align: middle;
 }
 
@@ -798,7 +799,7 @@
 .piw-iw-name { font-size: 15px; font-weight: 700; color: #fff; }
 .piw-iw-lv { color: #93a0e8; font-weight: 600; font-size: 12px; margin-left: 4px; }
 .piw-iw-types { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
-.piw-iw-type { color: #fff; border-radius: 99px; padding: 2px 9px; font-size: 10.5px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,.6); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+.piw-iw-type { color: #fff; border-radius: 99px; padding: 2px 9px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,.6); box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
 
 .piw-iw-chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
 .piw-iw-chip { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.09); border-radius: 99px; padding: 2px 9px; font-size: 11px; white-space: nowrap; }
@@ -1932,6 +1933,7 @@
     ]);
 
     function getFilteredPokemonList(filter) {
+        scanDOMRoutes();
         const NAME_MAP = {
             'nidoranfe': 'Nidoran Female',
             'nidoranma': 'Nidoran Male',
@@ -1949,72 +1951,31 @@
             return mapped.toLowerCase().replace(/[^a-z0-9]/g, '');
         };
 
-        // 1. Popula com espécies válidas de criaturas que não são lendárias sem rota
-        if (creatures && creatures.length > 0) {
-            for (const c of creatures) {
-                if (!c.name || c.pokeId >= 10000) continue;
-                const key = getNormalizedKey(c.name);
-                const routeMatch = routes.find(r => getNormalizedKey(r.name) === key);
-                const isNonHuntable = NON_HUNTABLE_SPECIES_IDS.has(c.pokeId) || c.catchable === false || c.wild === false || c.disabled === true;
-                if (isNonHuntable && !routeMatch) continue;
-
-                pokemonMap.set(key, {
-                    name: c.name,
-                    level: routeMatch?.level || c.level || 1,
-                    pokeId: c.pokeId || c.id || 0,
-                    type1: c.type1 || '',
-                    type2: c.type2 || '',
-                    area: routeMatch?.area || 'map'
-                });
-            }
-        } else {
-            // Fallback para rotas do mapa se criaturas ainda não responderam
-            routes.forEach(r => {
-                if (!r.name) return;
-                const key = getNormalizedKey(r.name);
-                const rawKey = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                pokemonMap.set(key, {
-                    name: NAME_MAP[rawKey] || r.name,
-                    level: r.level || 1,
-                    pokeId: 0,
-                    type1: '',
-                    type2: '',
-                    area: r.area || 'map'
-                });
-            });
-        }
-
-        // 2. Garante que qualquer rota vinda do DOM/API também esteja presente e atualize dados
+        // Popula APENAS com Pokémons que possuem rota/marcador de hunt no mapa (Kanto / Outland)
         routes.forEach(r => {
             if (!r.name) return;
             const key = getNormalizedKey(r.name);
+            if (CITY_SLUGS.has(key)) return;
+
             const creature = creatures.find(c => getNormalizedKey(c.name) === key);
             const rawKey = r.name.toLowerCase().replace(/[^a-z0-9]/g, '');
             const correctName = creature?.name || NAME_MAP[rawKey] || r.name;
+            const pokeId = creature?.pokeId || creature?.id || 0;
 
-            if (!pokemonMap.has(key)) {
-                pokemonMap.set(key, {
-                    name: correctName,
-                    level: r.level || 1,
-                    pokeId: creature?.pokeId || creature?.id || 0,
-                    type1: creature?.type1 || '',
-                    type2: creature?.type2 || '',
-                    area: r.area || 'map'
-                });
-            } else {
-                const existing = pokemonMap.get(key);
-                if (r.level) existing.level = r.level;
-                if (r.area) existing.area = r.area;
-                if (creature && (!existing.pokeId || existing.pokeId === 0)) {
-                    existing.pokeId = creature.pokeId || creature.id || 0;
-                    existing.name = creature.name;
-                    existing.type1 = creature.type1 || '';
-                    existing.type2 = creature.type2 || '';
-                }
-            }
+            if (NON_HUNTABLE_SPECIES_IDS.has(pokeId) && !r.isExplicitRoute) return;
+
+            pokemonMap.set(key, {
+                name: correctName,
+                level: r.level || 1,
+                pokeId: pokeId,
+                type1: creature?.type1 || '',
+                type2: creature?.type2 || '',
+                area: r.area || 'map'
+            });
         });
 
         for (const city of CITY_SLUGS) pokemonMap.delete(city);
+
         let pokemonArray = [...pokemonMap.values()];
         if (filterWeakOnly && leaderTypes.length > 0) {
             pokemonArray = pokemonArray.filter(p => isWeakAgainstLeader(p.name, leaderTypes));
@@ -2097,6 +2058,7 @@
     let pokedexModalTypeFilter = '';
     let pokedexModalShinyOnly = false;
     let pokedexModalWeakOnly = false;
+    let pokedexSortOrder = 'level_asc';
 
     function getPokemonImageUrl(pokeId, name, animated = false) {
         if (!pokeId || pokeId <= 0) {
@@ -2143,7 +2105,13 @@
                     <input type="text" id="piw-pokedex-search" placeholder="Buscar por nome ou número..." value="${pokedexModalFilter}">
                     <select id="piw-pokedex-type-filter">
                         <option value="">Todos os tipos</option>
-                        ${Object.keys(TYPE_COLORS).sort().map(t => `<option value="${t}" ${pokedexModalTypeFilter===t?'selected':''}>${t[0]+t.slice(1).toLowerCase()}</option>`).join('')}
+                        ${Object.keys(TYPE_COLORS).map(t => ({ key: t, label: getTypeLabelPT(t) })).sort((a, b) => a.label.localeCompare(b.label, 'pt')).map(item => `<option value="${item.key}" ${pokedexModalTypeFilter===item.key?'selected':''}>${item.label}</option>`).join('')}
+                    </select>
+                    <select id="piw-pokedex-sort">
+                        <option value="level_asc" ${pokedexSortOrder==='level_asc'?'selected':''}>Nível (Crescente)</option>
+                        <option value="level_desc" ${pokedexSortOrder==='level_desc'?'selected':''}>Nível (Decrescente)</option>
+                        <option value="id_asc" ${pokedexSortOrder==='id_asc'?'selected':''}>Número (# ID)</option>
+                        <option value="name_asc" ${pokedexSortOrder==='name_asc'?'selected':''}>Nome (A-Z)</option>
                     </select>
                     <label class="piw-check"><input type="checkbox" id="piw-pokedex-shiny" ${pokedexModalShinyOnly?'checked':''}> Shiny</label>
                     <label class="piw-check"><input type="checkbox" id="piw-pokedex-weak" ${pokedexModalWeakOnly?'checked':''}> Fraco contra líder</label>
@@ -2199,6 +2167,7 @@
         const grid = document.getElementById('piw-pokedex-grid');
         const searchInput = document.getElementById('piw-pokedex-search');
         const typeFilter = document.getElementById('piw-pokedex-type-filter');
+        const sortSelect = document.getElementById('piw-pokedex-sort');
         const shinyCheck = document.getElementById('piw-pokedex-shiny');
         const countEl = document.getElementById('piw-pokedex-count');
         const infoEl = document.getElementById('piw-pokedex-selected-info');
@@ -2229,6 +2198,17 @@
                 pokemonArray = pokemonArray.filter(p => isWeakAgainstLeader(p.name, leaderTypes));
             }
 
+            const sortMode = sortSelect ? sortSelect.value : pokedexSortOrder;
+            if (sortMode === 'level_asc') {
+                pokemonArray.sort((a, b) => (a.level - b.level) || (a.pokeId - b.pokeId));
+            } else if (sortMode === 'level_desc') {
+                pokemonArray.sort((a, b) => (b.level - a.level) || (a.pokeId - b.pokeId));
+            } else if (sortMode === 'id_asc') {
+                pokemonArray.sort((a, b) => a.pokeId - b.pokeId);
+            } else if (sortMode === 'name_asc') {
+                pokemonArray.sort((a, b) => a.name.localeCompare(b.name, 'pt'));
+            }
+
             countEl.textContent = `${pokemonArray.length} pokemon(s)`;
 
             grid.innerHTML = pokemonArray.map(p => {
@@ -2245,7 +2225,7 @@
                     <div class="piw-poke-name" title="${p.name}">${p.name}</div>
                     <div class="piw-poke-level">Lv.${p.level}</div>
                     <div class="piw-poke-types">
-                        ${types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#888'}">${t}</span>`).join('')}
+                        ${types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#888'};font-weight:700">${getTypeLabelPT(t)}</span>`).join('')}
                     </div>
                 </div>`;
             }).join('');
@@ -2297,6 +2277,7 @@
             }
         });
         shinyCheck.addEventListener('change', () => { pokedexModalShinyOnly = shinyCheck.checked; renderPokedex(); });
+        sortSelect.addEventListener('change', () => { pokedexSortOrder = sortSelect.value; renderPokedex(); });
         const weakCheck = document.getElementById('piw-pokedex-weak');
         weakCheck.addEventListener('change', () => { pokedexModalWeakOnly = weakCheck.checked; renderPokedex(); });
 
