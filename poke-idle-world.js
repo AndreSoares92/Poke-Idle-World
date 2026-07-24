@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.6
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -226,6 +226,12 @@
         psychic:"Psíquico",bug:"Inseto",rock:"Pedra",ghost:"Fantasma",dragon:"Dragão",
         dark:"Sombrio",steel:"Aço",fairy:"Fada"
     };
+
+    function getTypeLabelPT(t) {
+        if (!t) return '';
+        const key = String(t).toLowerCase().trim();
+        return TYPE_PT_MAP[key] || t;
+    }
 
     const CLANS_MAP = {
         ironhard:{name:"Ironhard",types:["steel"],color:"#b8b8d0"},
@@ -1293,8 +1299,8 @@
             if (leaderName) {
                 const imgUrl = getPokemonImageUrl(leaderPokeId, leaderName, true);
                 const fallbackUrl = getPokemonImageUrl(leaderPokeId, leaderName, false);
-                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${t}</span>`).join(' ');
-                leaderEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:10px">${imgUrl ? `<div style="width:52px;height:52px;border:2px solid #3d4a6a;border-radius:10px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:44px;height:44px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:6px"><span style="color:#e0e4ef;font-weight:700;font-size:15px">${leaderName}</span><span style="color:#9aa3bf;font-size:12px">Lv ${leaderLevel || '?'}</span></div><div style="display:flex;gap:4px;margin-top:3px">${typeBadges}</div></div></div>`;
+                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${getTypeLabelPT(t)}</span>`).join(' ');
+                leaderEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:10px">${imgUrl ? `<div style="width:52px;height:52px;border:2px solid #3d4a6a;border-radius:10px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:44px;height:44px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:5px"><span style="color:#e0e4ef;font-weight:700;font-size:15px">${leaderName}</span><span style="color:#93a0e8;font-weight:600;font-size:12px;margin-left:2px">Lv. ${leaderLevel || '?'}</span></div><div style="display:flex;gap:4px;margin-top:3px">${typeBadges}</div></div></div>`;
             } else {
                 leaderEl.textContent = '—';
             }
@@ -1307,8 +1313,8 @@
             if (leaderName) {
                 const imgUrl = getPokemonImageUrl(leaderPokeId, leaderName, true);
                 const fallbackUrl = getPokemonImageUrl(leaderPokeId, leaderName, false);
-                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:8px;padding:1px 5px">${t}</span>`).join(' ');
-                leaderMini.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px">${imgUrl ? `<div style="width:38px;height:38px;border:2px solid #3d4a6a;border-radius:8px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:32px;height:32px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:5px"><span style="color:#e0e4ef;font-weight:700;font-size:13px">${leaderName}</span><span style="color:#9aa3bf;font-size:10px">Lv ${leaderLevel || '?'}</span></div><div style="display:flex;gap:3px;margin-top:2px">${typeBadges}</div></div></div>`;
+                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-size:8px;padding:1px 5px">${getTypeLabelPT(t)}</span>`).join(' ');
+                leaderMini.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px">${imgUrl ? `<div style="width:38px;height:38px;border:2px solid #3d4a6a;border-radius:8px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:32px;height:32px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:4px"><span style="color:#e0e4ef;font-weight:700;font-size:13px">${leaderName}</span><span style="color:#93a0e8;font-weight:600;font-size:10px;margin-left:2px">Lv. ${leaderLevel || '?'}</span></div><div style="display:flex;gap:3px;margin-top:2px">${typeBadges}</div></div></div>`;
             } else {
                 leaderMini.textContent = '—';
             }
@@ -1332,7 +1338,7 @@
         const huntHTML = (huntingPokemon && selectedPokemon.length > 0) ? (() => {
             const creature = creatures.find(c => c.name?.toLowerCase() === huntingPokemon.toLowerCase());
             const types = [creature?.type1, creature?.type2].filter(Boolean);
-            const typeBadges = types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${t}</span>`).join(' ');
+            const typeBadges = types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${getTypeLabelPT(t)}</span>`).join(' ');
             return `<div style="display:flex;align-items:center;justify-content:center;gap:8px"><span style="color:#e0e4ef;font-weight:700;font-size:15px">${huntingPokemon}</span><span style="display:flex;gap:4px">${typeBadges}</span></div>`;
         })() : '';
         if (huntEl) huntEl.innerHTML = huntHTML;
@@ -1492,7 +1498,7 @@
             <div class="piw-iw-hero">
                 ${sprites ? `<img class="piw-iw-sprite" src="${sprites.anim}" onerror="this.onerror=null;this.src='${sprites.still}'">` : ''}
                 <div style="min-width:0">
-                    <div class="piw-iw-name">${name}${isShiny ? ' <span style="color:#ffd54a">✨</span>' : ''}<span class="piw-iw-lv">Lv ${level}</span></div>
+                    <div class="piw-iw-name">${name}${isShiny ? ' <span style="color:#ffd54a">✨</span>' : ''}<span class="piw-iw-lv">Lv. ${level}</span></div>
                     <div class="piw-iw-types">
                         ${types.map(t => {
                             const bg = TYPE_COLORS_MAP[t.toLowerCase()] || TYPE_COLORS[t.toUpperCase()] || '#888';
