@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1218,7 +1218,7 @@
             GM_setValue('piw_captureTarget', parseInt(this.value) || 1);
             syncUI();
         };
-        panel.querySelector('#piw-reset').onclick = () => { killCount = 0; captureCount = 0; resetObservedMoves(); syncUI(); };
+        panel.querySelector('#piw-reset').onclick = () => { killCount = 0; captureCount = 0; sessionShinyCount = 0; resetObservedMoves(); syncUI(); };
         panel.querySelector('#piw-toggle-iv')?.addEventListener('click', toggleInfoWindow);
         panel.querySelector('#piw-toggle-moves')?.addEventListener('click', toggleMovesWindow);
 
@@ -1300,7 +1300,7 @@
             }
         }
         if (shinyEl) {
-            shinyEl.textContent = `✨ Shiny: ${shinyCount}`;
+            shinyEl.textContent = `✨ Shiny: ${sessionShinyCount}`;
         }
         const leaderMini = document.getElementById('piw-leader-mini');
         if (leaderMini) {
@@ -1314,7 +1314,7 @@
             }
         }
         const shinyMini = document.getElementById('piw-shiny-mini');
-        if (shinyMini) shinyMini.textContent = `✨ Shiny: ${shinyCount}`;
+        if (shinyMini) shinyMini.textContent = `✨ Shiny: ${sessionShinyCount}`;
         const killsMini = document.getElementById('piw-kills-mini');
         const capsMini = document.getElementById('piw-caps-mini');
         const barKillsMini = document.getElementById('piw-bar-kills-mini');
@@ -2667,17 +2667,27 @@
         }
     }, 2000);
 
+    let sessionShinyCount = 0;
+    let isFirstPokesCheck = true;
+
     // Detecta novos shinies comparando a lista anterior
     function detectShinyFromPokes(pokeList) {
         const currentShinies = pokeList.filter(p => p.shiny);
+
+        if (isFirstPokesCheck) {
+            lastPokesList = pokeList.map(p => ({ id: p.id, shiny: p.shiny, name: p.name }));
+            isFirstPokesCheck = false;
+            return;
+        }
+
         const newShinyIds = currentShinies
             .filter(p => !lastPokesList.some(old => old.id === p.id && old.shiny))
             .map(p => p.id);
 
         if (newShinyIds.length > 0) {
             for (const shiny of currentShinies.filter(p => newShinyIds.includes(p.id))) {
-                shinyCount++;
-                GM_log('[AutoHunt] ✨ NOVO SHINY CAPTURADO!', shiny.name, '(total:', shinyCount + ')');
+                sessionShinyCount++;
+                GM_log('[AutoHunt] ✨ NOVO SHINY CAPTURADO NESTA SESSÃO!', shiny.name, '(Total sessão:', sessionShinyCount + ')');
             }
             syncUI();
             // Se está no modo shiny-only, reseta contadores e troca
@@ -2689,13 +2699,6 @@
 
         // Atualiza a lista anterior
         lastPokesList = pokeList.map(p => ({ id: p.id, shiny: p.shiny, name: p.name }));
-
-        // Atualiza contagem total de shinies
-        const totalShinies = currentShinies.length;
-        if (totalShinies !== shinyCount) {
-            shinyCount = totalShinies;
-            syncUI();
-        }
     }
 
     function getLeaderFromDOM() {
