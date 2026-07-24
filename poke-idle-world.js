@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.77.0
+// @version      0.79.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -472,7 +472,7 @@
     border: 1px solid rgba(132,144,255,.3); border-radius: 14px;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 13px; line-height: 1.4;
-    width: 340px; min-width: 280px; min-height: 200px;
+    width: 340px; min-width: 340px; min-height: 200px;
     box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
     backdrop-filter: blur(10px); user-select: none;
     max-height: 90vh; overflow: hidden;
@@ -918,8 +918,9 @@
             if (!isDragging) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-            const newLeft = Math.max(0, Math.min(window.innerWidth - win.offsetWidth, initialLeft + dx));
-            const newTop = Math.max(0, Math.min(window.innerHeight - win.offsetHeight, initialTop + dy));
+            const minVisible = 40;
+            const newLeft = Math.max(-win.offsetWidth + minVisible, Math.min(window.innerWidth - minVisible, initialLeft + dx));
+            const newTop = Math.max(-10, Math.min(window.innerHeight - minVisible, initialTop + dy));
             win.style.left = `${newLeft}px`;
             win.style.top = `${newTop}px`;
         };
@@ -960,8 +961,8 @@
 
         const onMove = (e) => {
             if (!isResizing) return;
-            const newW = Math.max(minW, Math.min(window.innerWidth - win.offsetLeft, startW + (e.clientX - startX)));
-            const newH = Math.max(minH, Math.min(window.innerHeight - win.offsetTop, startH + (e.clientY - startY)));
+            const newW = Math.max(minW, startW + (e.clientX - startX));
+            const newH = Math.max(minH, startH + (e.clientY - startY));
             win.style.width = `${newW}px`;
             win.style.height = `${newH}px`;
         };
@@ -1191,7 +1192,7 @@
         makeDraggable(panel, title, 'piw_panelPos');
 
         const resizeHandle = panel.querySelector('.piw-win-resize');
-        makeResizable(panel, resizeHandle, 'piw_panelSize', 280, 200);
+        makeResizable(panel, resizeHandle, 'piw_panelSize', 340, 200);
 
         renderSelectedTags();
         renderPokemonList('');
@@ -1294,10 +1295,10 @@
 
         const storedPos = GM_getValue('piw_info_win_pos', { left: 400, top: 120 });
         const storedSize = GM_getValue('piw_info_win_size', null);
-        const iwL = parseFloat(storedPos.left) || 400;
-        const iwT = parseFloat(storedPos.top) || 120;
-        win.style.left = `${Math.max(10, Math.min(iwL, window.innerWidth - 350))}px`;
-        win.style.top = `${Math.max(10, Math.min(iwT, window.innerHeight - 100))}px`;
+        const iwL = parseFloat(storedPos.left);
+        const iwT = parseFloat(storedPos.top);
+        win.style.left = `${!isNaN(iwL) ? iwL : 400}px`;
+        win.style.top = `${!isNaN(iwT) ? iwT : 120}px`;
         if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
         if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
         win.style.display = infoWindowVisible ? 'flex' : 'none';
@@ -1638,10 +1639,10 @@
 
         const storedPos = GM_getValue('piw_moves_win_pos', { left: 760, top: 120 });
         const storedSize = GM_getValue('piw_moves_win_size', null);
-        const mwL = parseFloat(storedPos.left) || 760;
-        const mwT = parseFloat(storedPos.top) || 120;
-        win.style.left = `${Math.max(10, Math.min(mwL, window.innerWidth - 320))}px`;
-        win.style.top = `${Math.max(10, Math.min(mwT, window.innerHeight - 100))}px`;
+        const mwL = parseFloat(storedPos.left);
+        const mwT = parseFloat(storedPos.top);
+        win.style.left = `${!isNaN(mwL) ? mwL : 760}px`;
+        win.style.top = `${!isNaN(mwT) ? mwT : 120}px`;
         if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
         if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
         win.style.display = movesWindowVisible ? 'flex' : 'none';
