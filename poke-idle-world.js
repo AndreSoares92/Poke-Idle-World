@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.83.0
+// @version      0.84.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1903,6 +1903,7 @@
     }
 
     function renderPokemonList(filter) {
+        scanDOMRoutes();
         const list = document.getElementById('piw-pokemon-list');
         const pageInfo = document.getElementById('piw-page-info');
         const prevBtn = document.getElementById('piw-prev-page');
@@ -2233,20 +2234,76 @@
         }
 
         try {
-            // Busca rotas do mapa
+            // Busca rotas do mapa (incluindo Outland e todas as áreas)
             const markersResp = await fetch('/api/game/map-markers');
             if (markersResp.ok) {
                 const data = await markersResp.json();
-                routes = (data.hunts || []).filter(h => h.slug !== 'cerulean');
-                GM_log('[AutoHunt] Rotas carregadas:', routes.length);
+                let rawHunts = [];
+                if (Array.isArray(data)) {
+                    rawHunts = data;
+                } else if (typeof data === 'object' && data !== null) {
+                    for (const [key, val] of Object.entries(data)) {
+                        if (Array.isArray(val)) {
+                            const isOutlandKey = key.toLowerCase().includes('outland');
+                            val.forEach(item => {
+                                if (item && typeof item === 'object') {
+                                    rawHunts.push({
+                                        ...item,
+                                        area: item.area || (isOutlandKey ? 'outland' : undefined)
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }
+                const seenSlugs = new Set();
+                routes = [];
+                for (const h of rawHunts) {
+                    if (h && h.name && h.slug !== 'cerulean' && !seenSlugs.has(h.slug || h.name)) {
+                        seenSlugs.add(h.slug || h.name);
+                        routes.push(h);
+                    }
+                }
+                GM_log('[AutoHunt] Rotas (incluindo Outland) carregadas:', routes.length);
             }
         } catch(e) {
             GM_log('[AutoHunt] Erro ao buscar map-markers:', e);
         }
     }
 
+    // Escaneia marcadores de rotas/outland direto do DOM do jogo
+    function scanDOMRoutes() {
+        const markers = document.querySelectorAll('button.hunt-marker');
+        let added = 0;
+        for (const m of markers) {
+            const nameEl = m.querySelector('.hunt-name');
+            const lvEl = m.querySelector('.hunt-lv, .hunt-level, [class*="lv"], [class*="level"]');
+            if (nameEl) {
+                const name = nameEl.textContent.trim();
+                if (name && name !== 'Cerulean') {
+                    const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (!routes.some(r => r.name?.toLowerCase() === name.toLowerCase())) {
+                        const lvMatch = (lvEl?.textContent || '').match(/\d+/);
+                        const isOutland = document.querySelector('button.map-area.active')?.textContent?.toLowerCase().includes('outland') || false;
+                        routes.push({
+                            name: name,
+                            slug: key,
+                            level: lvMatch ? Number(lvMatch[0]) : 1,
+                            area: isOutland ? 'outland' : undefined
+                        });
+                        added++;
+                    }
+                }
+            }
+        }
+        if (added > 0) {
+            GM_log('[AutoHunt] Novas rotas/Outland detectadas via DOM:', added);
+        }
+    }
+
     // ========== DETECTAR ROTA ATUAL ==========
     function detectRoute() {
+        scanDOMRoutes();
         // Procura no DOM elementos que contenham o nome da rota
         const candidates = document.querySelectorAll(
             '[class*="route"] a, [class*="location"], [class*="area"], .piw-route-src'
