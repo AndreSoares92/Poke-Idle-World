@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.92.0
+// @version      0.99.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -604,15 +604,22 @@
 .piw-panel .piw-btns-row .piw-btn { flex: 1; font-size: 10px; padding: 3px 6px; }
 
 #piw-reopen {
-    position: fixed; top: 5px; right: 10px; z-index: 2147483647;
-    width: 34px; height: 34px; border-radius: 10px;
-    background: linear-gradient(165deg, rgba(20,24,38,.97), rgba(12,14,24,.97));
-    border: 1px solid rgba(132,144,255,.3);
-    color: #e0e4ef; font-size: 14px; cursor: pointer;
-    box-shadow: 0 4px 16px rgba(0,0,0,.5); display: none;
-    align-items: center; justify-content: center; transition: all .15s;
+    position: fixed; top: 10px; right: 10px; z-index: 2147483647;
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(165deg, #161a29, #0d0f18);
+    border: 1px solid rgba(132,144,255,.35);
+    color: #a5b4fc; font-size: 16px; cursor: move;
+    box-shadow: 0 4px 16px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+    display: none; align-items: center; justify-content: center;
+    transition: background .15s, border-color .15s, box-shadow .15s, transform .15s; user-select: none;
 }
-#piw-reopen:hover { background: rgba(132,144,255,.2); border-color: rgba(132,144,255,.5); }
+#piw-reopen:hover {
+    background: linear-gradient(165deg, #22283d, #141826);
+    border-color: rgba(132,144,255,.6);
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(0,0,0,.8), 0 0 12px rgba(132,144,255,.3);
+    transform: translateY(-1px);
+}
 .piw-modal-overlay {
     position: fixed; inset: 0; z-index: 2147483000;
     background: transparent; display: block;
@@ -899,12 +906,15 @@
     function makeDraggable(win, handle, storageKey) {
         if (!win || !handle) return;
         let isDragging = false;
+        let hasMoved = false;
         let startX = 0, startY = 0;
         let initialLeft = 0, initialTop = 0;
 
         const onStart = (e) => {
-            if (e.target.closest('.piw-close, .piw-iw-close, .piw-mw-close, .piw-modal-close, input, button, select, label')) return;
+            const isReopenBtn = win.id === 'piw-reopen' || handle.id === 'piw-reopen';
+            if (!isReopenBtn && e.target.closest('.piw-close, .piw-iw-close, .piw-mw-close, .piw-modal-close, input, button, select, label')) return;
             isDragging = true;
+            hasMoved = false;
             const rect = win.getBoundingClientRect();
             startX = e.clientX;
             startY = e.clientY;
@@ -923,7 +933,8 @@
             if (!isDragging) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-            const minVisible = 40;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
+            const minVisible = 20;
             const newLeft = Math.max(-win.offsetWidth + minVisible, Math.min(window.innerWidth - minVisible, initialLeft + dx));
             const newTop = Math.max(-10, Math.min(window.innerHeight - minVisible, initialTop + dy));
             win.style.left = `${newLeft}px`;
@@ -933,6 +944,10 @@
         const onEnd = () => {
             if (isDragging) {
                 isDragging = false;
+                if (hasMoved) {
+                    win._wasDragged = true;
+                    setTimeout(() => { win._wasDragged = false; }, 100);
+                }
                 if (storageKey) {
                     GM_setValue(storageKey, {
                         left: parseFloat(win.style.left),
@@ -1017,7 +1032,7 @@
         panel.className = 'piw-panel';
         makeBringableToFront(panel);
         panel.innerHTML = `
-            <h3>Poke Helper <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
+            <h3><span style="display:flex;align-items:center;gap:7px"><svg width="18" height="18" viewBox="0 0 100 100" style="display:inline-block;vertical-align:middle;pointer-events:none"><path d="M 50 10 A 40 40 0 0 1 90 50 L 68 50 A 18 18 0 0 0 32 50 L 10 50 A 40 40 0 0 1 50 10 Z" fill="#ff4d4d"/><path d="M 10 50 L 32 50 A 18 18 0 0 0 68 50 L 90 50 A 40 40 0 0 1 50 90 A 40 40 0 0 1 10 50 Z" fill="#ffffff"/><circle cx="50" cy="50" r="18" fill="#141826"/><circle cx="50" cy="50" r="10" fill="#ffffff"/><circle cx="50" cy="50" r="40" fill="none" stroke="#141826" stroke-width="6"/><line x1="10" y1="50" x2="32" y2="50" stroke="#141826" stroke-width="6"/><line x1="68" y1="50" x2="90" y2="50" stroke="#141826" stroke-width="6"/></svg>Poke Helper</span> <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
             <div class="piw-panel-inner">
                 <div style="display:flex;gap:6px;justify-content:center;margin:2px 0 6px">
                 <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 16px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
@@ -1101,20 +1116,55 @@
             });
         }
 
-        // Fechar/reabrir painel
+        // Fechar/reabrir painel com persistência e botão arrastável
         const closeBtn = panel.querySelector('#piw-close-panel');
         const reopenBtn = document.createElement('button');
         reopenBtn.id = 'piw-reopen';
-        reopenBtn.innerHTML = '🐾';
-        reopenBtn.title = 'Abrir Auto Hunt';
+        reopenBtn.innerHTML = `<svg width="22" height="22" viewBox="0 0 100 100" style="display:block; pointer-events:none;">
+          <path d="M 50 10 A 40 40 0 0 1 90 50 L 68 50 A 18 18 0 0 0 32 50 L 10 50 A 40 40 0 0 1 50 10 Z" fill="#ff4d4d"/>
+          <path d="M 10 50 L 32 50 A 18 18 0 0 0 68 50 L 90 50 A 40 40 0 0 1 50 90 A 40 40 0 0 1 10 50 Z" fill="#ffffff"/>
+          <circle cx="50" cy="50" r="18" fill="#141826"/>
+          <circle cx="50" cy="50" r="10" fill="#ffffff"/>
+          <circle cx="50" cy="50" r="40" fill="none" stroke="#141826" stroke-width="6"/>
+          <line x1="10" y1="50" x2="32" y2="50" stroke="#141826" stroke-width="6"/>
+          <line x1="68" y1="50" x2="90" y2="50" stroke="#141826" stroke-width="6"/>
+        </svg>`;
+        reopenBtn.title = 'Abrir Poke Helper';
         document.body.appendChild(reopenBtn);
+
+        const savedReopenPos = GM_getValue('piw_reopenPos', null);
+        if (savedReopenPos && !isNaN(parseFloat(savedReopenPos.left)) && !isNaN(parseFloat(savedReopenPos.top))) {
+            reopenBtn.style.left = parseFloat(savedReopenPos.left) + 'px';
+            reopenBtn.style.top = parseFloat(savedReopenPos.top) + 'px';
+            reopenBtn.style.right = 'auto';
+            reopenBtn.style.bottom = 'auto';
+        } else {
+            reopenBtn.style.top = '10px';
+            reopenBtn.style.right = '10px';
+            reopenBtn.style.bottom = 'auto';
+            reopenBtn.style.left = 'auto';
+        }
+        makeDraggable(reopenBtn, reopenBtn, 'piw_reopenPos');
+
+        let panelClosed = GM_getValue('piw_panelClosed', false);
+        if (panelClosed) {
+            panel.style.display = 'none';
+            reopenBtn.style.display = 'flex';
+        } else {
+            panel.style.display = '';
+            reopenBtn.style.display = 'none';
+        }
+
         closeBtn.addEventListener('click', () => {
             panel.style.display = 'none';
             reopenBtn.style.display = 'flex';
+            GM_setValue('piw_panelClosed', true);
         });
         reopenBtn.addEventListener('click', () => {
+            if (reopenBtn._wasDragged) return;
             panel.style.display = '';
             reopenBtn.style.display = 'none';
+            GM_setValue('piw_panelClosed', false);
         });
 
 
