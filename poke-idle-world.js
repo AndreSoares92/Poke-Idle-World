@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -2108,10 +2108,10 @@
                         ${Object.keys(TYPE_COLORS).map(t => ({ key: t, label: getTypeLabelPT(t) })).sort((a, b) => a.label.localeCompare(b.label, 'pt')).map(item => `<option value="${item.key}" ${pokedexModalTypeFilter===item.key?'selected':''}>${item.label}</option>`).join('')}
                     </select>
                     <select id="piw-pokedex-sort">
-                        <option value="level_asc" ${pokedexSortOrder==='level_asc'?'selected':''}>Nível (Crescente)</option>
-                        <option value="level_desc" ${pokedexSortOrder==='level_desc'?'selected':''}>Nível (Decrescente)</option>
                         <option value="id_asc" ${pokedexSortOrder==='id_asc'?'selected':''}>Número (# ID)</option>
                         <option value="name_asc" ${pokedexSortOrder==='name_asc'?'selected':''}>Nome (A-Z)</option>
+                        <option value="level_asc" ${pokedexSortOrder==='level_asc'?'selected':''}>Nível (Crescente)</option>
+                        <option value="level_desc" ${pokedexSortOrder==='level_desc'?'selected':''}>Nível (Decrescente)</option>
                     </select>
                     <label class="piw-check"><input type="checkbox" id="piw-pokedex-shiny" ${pokedexModalShinyOnly?'checked':''}> Shiny</label>
                     <label class="piw-check"><input type="checkbox" id="piw-pokedex-weak" ${pokedexModalWeakOnly?'checked':''}> Fraco contra líder</label>
