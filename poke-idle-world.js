@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      0.99.0
+// @version      1.0.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1218,7 +1218,7 @@
             GM_setValue('piw_captureTarget', parseInt(this.value) || 1);
             syncUI();
         };
-        panel.querySelector('#piw-reset').onclick = () => { killCount = 0; captureCount = 0; syncUI(); };
+        panel.querySelector('#piw-reset').onclick = () => { killCount = 0; captureCount = 0; resetObservedMoves(); syncUI(); };
         panel.querySelector('#piw-toggle-iv')?.addEventListener('click', toggleInfoWindow);
         panel.querySelector('#piw-toggle-moves')?.addEventListener('click', toggleMovesWindow);
 
@@ -1746,6 +1746,14 @@
             bringToFront(win);
             renderMovesWindow();
         }
+    }
+
+    let lastObservedRoute = '';
+
+    function resetObservedMoves() {
+        observedMovesMap.clear();
+        if (movesWindowVisible) renderMovesWindow();
+        GM_log('[AutoHunt] Golpes tomados nesta hunt foram resetados.');
     }
 
     function renderMovesWindow() {
@@ -2438,7 +2446,11 @@
         for (const el of candidates) {
             const t = (el.textContent || '').trim();
             if (t && t.length < 40 && !/loading/i.test(t) && !/menu/i.test(t)) {
-                currentRoute = t.split('(')[0].trim();
+                const newRoute = t.split('(')[0].trim();
+                if (newRoute && newRoute !== currentRoute) {
+                    currentRoute = newRoute;
+                    resetObservedMoves();
+                }
                 return currentRoute;
             }
         }
