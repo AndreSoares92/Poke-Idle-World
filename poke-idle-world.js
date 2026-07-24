@@ -1241,6 +1241,16 @@
     }
 
     function syncUI() {
+        // Atualiza leaderLevel com o mesmo fallback da janela de IVs:
+        // 1) currentLeaderData (WebSocket), 2) getLeaderLevelFromDOM() (DOM do jogo)
+        if (leaderName) {
+            const domLv = getLeaderLevelFromDOM();
+            if (domLv !== null && domLv > 0) leaderLevel = domLv;
+            else if (!leaderLevel && currentLeaderData) {
+                leaderLevel = currentLeaderData.level || currentLeaderData.lvl || currentLeaderData.pokemonLevel || 0;
+            }
+        }
+
         const target = GM_getValue('piw_killTarget', 100);
         const capTarget = GM_getValue('piw_captureTarget', 1);
         const killsEl = document.getElementById('piw-kills');
