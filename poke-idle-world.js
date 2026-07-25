@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.1.4
+// @version      1.2.5
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -22,7 +22,8 @@
     // ========== CONFIG (persistida) ==========
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
-    let enabled          = GM_getValue('piw_enabled', true);
+    let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
+    GM_setValue('piw_enabled', false);
     let selectedPokemon  = GM_getValue('piw_selectedPokemon', []); // Array de nomes
     let huntRoutes       = []; // {slug, name, level} de todas as rotas
 
@@ -933,7 +934,7 @@
             win.style.bottom = 'auto';
             win.style.transform = 'none';
             bringToFront(win);
-            e.preventDefault();
+            if (!isReopenBtn) e.preventDefault();
         };
 
         const onMove = (e) => {
@@ -1172,6 +1173,7 @@
             panel.style.display = '';
             reopenBtn.style.display = 'none';
             GM_setValue('piw_panelClosed', false);
+            bringToFront(panel);
         });
 
 
@@ -1188,11 +1190,12 @@
         panel.querySelector('#piw-stop').addEventListener('click', () => {
             enabled = false;
             GM_setValue('piw_enabled', false);
+            resetObservedMoves();
             syncUI();
             const houseBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn[data-guide*="home"], button.dock-btn[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"]');
             if (houseBtn) {
                 houseBtn.click();
-                GM_log('[AutoHunt] Stop: voltando pra cidade');
+                GM_log('[AutoHunt] Stop: voltando pra cidade e zerando golpes tomados');
             } else {
                 GM_log('[AutoHunt] Stop: botão da casa não encontrado');
             }
@@ -1762,6 +1765,27 @@
         if (movesWindowVisible) renderMovesWindow();
         GM_log('[AutoHunt] Golpes tomados nesta hunt foram resetados.');
     }
+
+    // Escuta cliques no botão da casinha/cidade e hashchange para zerar imediatamente
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-guide*="home"], button[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"], button.dock-btn');
+        if (btn) {
+            const text = (btn.textContent || '').toLowerCase();
+            const guide = (btn.getAttribute('data-guide') || '').toLowerCase();
+            if (guide.includes('home') || guide.includes('city') || text.includes('casa') || text.includes('home') || text.includes('cidade')) {
+                killCount = 0;
+                captureCount = 0;
+                resetObservedMoves();
+                GM_log('[AutoHunt] Clique na casinha/cidade detectado! Golpes tomados resetados.');
+            }
+        }
+    }, true);
+
+    window.addEventListener('hashchange', () => {
+        if (isCity() || /home|city|town|house/i.test(window.location.hash)) {
+            resetObservedMoves();
+        }
+    });
 
     function renderMovesWindow() {
         const win = document.getElementById('piw-moves-window');
@@ -2559,13 +2583,18 @@
                     // Detecta slug da rota (field-init)
                     if (data && data.type === 'field-init' && data.slug) {
                         const wasCity = isCity();
+                        const isNewSlug = currentSlug !== data.slug;
                         currentSlug = data.slug;
                         currentRoute = data.name || data.slug;
-                        // Se entrou em cidade, reseta contadores
-                        if (!wasCity && isCity()) {
+                        if (isNewSlug) {
+                            resetObservedMoves();
+                        }
+                        // Se entrou em cidade, reseta contadores e golpes tomados
+                        if (isCity()) {
                             killCount = 0;
                             captureCount = 0;
-                            GM_log('[AutoHunt] Entrou em cidade, contadores resetados.');
+                            resetObservedMoves();
+                            GM_log('[AutoHunt] Entrou em cidade, contadores e golpes tomados resetados.');
                         }
                         GM_log('[AutoHunt] Rota detectada:', currentRoute, '(' + currentSlug + ')');
                         syncUI();
@@ -2796,6 +2825,7 @@
                 if (!nameEl) continue;
                 const name = nameEl.textContent.trim();
                 if (name.toLowerCase() === pokemonName.toLowerCase()) {
+                    resetObservedMoves();
                     marker.click();
                     return;
                 }
@@ -2900,6 +2930,7 @@
                             GM_setValue('piw_captures_' + slug, 0);
                             GM_log('[AutoHunt] Novo pokémon:', pokemon, '- contadores resetados.');
                         }
+                        resetObservedMoves();
                         GM_log('[AutoHunt] Clicando rota:', pokemon);
                         targetMarker.click();
                         currentRoute = pokemon;
@@ -2953,7 +2984,7 @@
     // ========== INICIALIZAR ==========
     async function init() {
         const check = setInterval(() => {
-            if (document.querySelector('.game-root, .game-canvas-host, [class*="game-"]')) {
+            if (document.body && (document.querySelector('.game-root, .game-canvas-host, [class*="game-"]') || document.readyState === 'complete' || document.readyState === 'interactive')) {
                 clearInterval(check);
                 buildPanel();
                 createInfoWindowDOM();
@@ -2971,7 +3002,7 @@
                 }, 3000);
                 GM_log('[Poke Helper] Painel criado');
             }
-        }, 300);
+        }, 200);
     }
 
     if (document.readyState === 'loading')
