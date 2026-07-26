@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
+// @version      1.2.6
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1268,8 +1268,10 @@
         // 1) currentLeaderData (WebSocket), 2) getLeaderLevelFromDOM() (DOM do jogo)
         if (leaderName) {
             const domLv = getLeaderLevelFromDOM();
-            if (domLv !== null && domLv > 0) leaderLevel = domLv;
-            else if (!leaderLevel && currentLeaderData) {
+            if (domLv !== null && domLv > 0) {
+                leaderLevel = domLv;
+                if (currentLeaderData) currentLeaderData.level = domLv;
+            } else if (!leaderLevel && currentLeaderData) {
                 leaderLevel = currentLeaderData.level || currentLeaderData.lvl || currentLeaderData.pokemonLevel || 0;
             }
         }
@@ -1347,6 +1349,7 @@
         })() : '';
         if (huntEl) huntEl.innerHTML = huntHTML;
         if (huntElMini) huntElMini.innerHTML = huntHTML;
+        if (infoWindowVisible) renderInfoWindow();
         saveState();
         renderInfoWindow();
         renderMovesWindow();
@@ -1462,8 +1465,8 @@
             return;
         }
 
-        const name = leader.name || leaderName || '?';
-        const level = leader.level || leaderLevel || 1;
+        const name = leader?.name || leaderName || '?';
+        const level = leaderLevel || leader?.level || 1;
         const speciesId = leader.speciesId || leader.pokeId || leaderPokeId || (() => {
             const c = creatures.find(c => c.name?.toLowerCase() === name.toLowerCase());
             return c?.pokeId || c?.id || 0;
