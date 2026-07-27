@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
+// @version      1.3.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1186,16 +1186,18 @@
                 doSwitch();
             }
         });
-        // Botão Stop - parar e voltar pra cidade
+        // Botão Stop - parar e voltar pra cidade (preserva abates e capturas)
         panel.querySelector('#piw-stop').addEventListener('click', () => {
             enabled = false;
             GM_setValue('piw_enabled', false);
+            huntingPokemon = '';
+            GM_setValue('piw_huntingPokemon', '');
             resetObservedMoves();
             syncUI();
             const houseBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn[data-guide*="home"], button.dock-btn[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"]');
             if (houseBtn) {
                 houseBtn.click();
-                GM_log('[AutoHunt] Stop: voltando pra cidade e zerando golpes tomados');
+                GM_log('[AutoHunt] Stop: voltando pra cidade');
             } else {
                 GM_log('[AutoHunt] Stop: botão da casa não encontrado');
             }
@@ -1341,7 +1343,7 @@
         if (startMini) startMini.style.display = (isCity() && selectedPokemon.length > 0 && !busy) ? 'block' : 'none';
         const huntEl = document.getElementById('piw-hunting-display');
         const huntElMini = document.getElementById('piw-hunting-display-mini');
-        const huntHTML = (huntingPokemon && selectedPokemon.length > 0) ? (() => {
+        const huntHTML = (huntingPokemon && selectedPokemon.length > 0 && !isCity()) ? (() => {
             const creature = creatures.find(c => c.name?.toLowerCase() === huntingPokemon.toLowerCase());
             const types = [creature?.type1, creature?.type2].filter(Boolean);
             const typeBadges = types.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-size:9px;padding:1px 6px">${getTypeLabelPT(t)}</span>`).join(' ');
@@ -1769,17 +1771,18 @@
         GM_log('[AutoHunt] Golpes tomados nesta hunt foram resetados.');
     }
 
-    // Escuta cliques no botão da casinha/cidade e hashchange para zerar imediatamente
+    // Escuta cliques no botão da casinha/cidade e hashchange para ocultar pokémon da caça
     document.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-guide*="home"], button[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"], button.dock-btn');
         if (btn) {
             const text = (btn.textContent || '').toLowerCase();
             const guide = (btn.getAttribute('data-guide') || '').toLowerCase();
             if (guide.includes('home') || guide.includes('city') || text.includes('casa') || text.includes('home') || text.includes('cidade')) {
-                killCount = 0;
-                captureCount = 0;
+                huntingPokemon = '';
+                GM_setValue('piw_huntingPokemon', '');
                 resetObservedMoves();
-                GM_log('[AutoHunt] Clique na casinha/cidade detectado! Golpes tomados resetados.');
+                syncUI();
+                GM_log('[AutoHunt] Clique na casinha/cidade detectado!');
             }
         }
     }, true);
@@ -2592,12 +2595,12 @@
                         if (isNewSlug) {
                             resetObservedMoves();
                         }
-                        // Se entrou em cidade, reseta contadores e golpes tomados
+                        // Se entrou em cidade, limpa pokémon caçado e reseta golpes tomados (preserva abates/capturas)
                         if (isCity()) {
-                            killCount = 0;
-                            captureCount = 0;
+                            huntingPokemon = '';
+                            GM_setValue('piw_huntingPokemon', '');
                             resetObservedMoves();
-                            GM_log('[AutoHunt] Entrou em cidade, contadores e golpes tomados resetados.');
+                            GM_log('[AutoHunt] Entrou em cidade.');
                         }
                         GM_log('[AutoHunt] Rota detectada:', currentRoute, '(' + currentSlug + ')');
                         syncUI();
