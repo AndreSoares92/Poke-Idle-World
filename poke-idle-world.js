@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -2296,9 +2296,9 @@
                     const weakTo = TYPE_WEAK_TO[typeFilter.value] || [];
                     const superEff = TYPE_SUPER_EFFECTIVE[typeFilter.value] || [];
                     let html = `<span style="color:#f87171;font-weight:600">⚔ Fraco contra:</span> `;
-                    html += weakTo.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'}">${t}</span>`).join(' ');
+                    html += weakTo.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-weight:700">${getTypeLabelPT(t)}</span>`).join(' ');
                     html += `<br><span style="color:#4ade80;font-weight:600">🛡 Resistente a:</span> `;
-                    html += superEff.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS[t]||'#555'}">${t}</span>`).join(' ');
+                    html += superEff.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-weight:700">${getTypeLabelPT(t)}</span>`).join(' ');
                     hintEl.innerHTML = html;
                     hintEl.style.display = 'block';
                 } else {
