@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.5.1
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1244,7 +1244,10 @@
         panel.querySelector('#piw-toggle-moves')?.addEventListener('click', toggleMovesWindow);
 
         // Botão Pokédex
-        panel.querySelector('#piw-open-pokedex').addEventListener('click', () => openPokedexModal());
+        panel.querySelector('#piw-open-pokedex')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openPokedexModal();
+        });
 
         // Botão Começar caça (full view) - removido, agora é Play/Stop
 
@@ -2190,7 +2193,8 @@
     }
 
     function openPokedexModal() {
-        if (document.getElementById('piw-pokedex-overlay')) return;
+        const existingOverlay = document.getElementById('piw-pokedex-overlay');
+        if (existingOverlay) existingOverlay.remove();
         const overlay = document.createElement('div');
         overlay.id = 'piw-pokedex-overlay';
         overlay.className = 'piw-modal-overlay';
