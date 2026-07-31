@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.4.2
+// @version      1.5.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -2097,7 +2097,55 @@
     let pokedexModalTypeFilter = '';
     let pokedexModalShinyOnly = false;
     let pokedexModalWeakOnly = false;
-    let pokedexSortOrder = 'id_asc';
+    const pokedexDOMCache = new Map();
+
+    function scanGamePokedexDOMImages() {
+        try {
+            const imgs = document.querySelectorAll('[class*="pokedex"] img, [class*="poke"] img, .phud-party img, img[src*="pokemon"], img[src*="sprites"], img[src*="creature"]');
+            for (const img of imgs) {
+                const src = img.getAttribute('src') || img.src;
+                if (!src) continue;
+                const alt = (img.getAttribute('alt') || '').toLowerCase();
+                const matchId = src.match(/(\d+)\.(png|gif|webp|jpg)/i);
+                if (matchId) {
+                    pokedexDOMCache.set(Number(matchId[1]), src);
+                }
+                if (alt) {
+                    pokedexDOMCache.set(alt, src);
+                }
+            }
+        } catch(e) {}
+    }
+
+    function getGamePokedexImgFromDOM(realId, name) {
+        scanGamePokedexDOMImages();
+        if (realId && pokedexDOMCache.has(Number(realId))) return pokedexDOMCache.get(Number(realId));
+        if (name && pokedexDOMCache.has(name.toLowerCase())) return pokedexDOMCache.get(name.toLowerCase());
+        return null;
+    }
+
+    function handlePokeImgError(imgEl) {
+        if (!imgEl || imgEl._failedOnce) {
+            if (imgEl && !imgEl._failedTwice) {
+                imgEl._failedTwice = true;
+                const realId = imgEl.dataset?.realid || 1;
+                imgEl.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${realId}.png`;
+            }
+            return;
+        }
+        imgEl._failedOnce = true;
+        const realId = imgEl.dataset?.realid || 1;
+        const currentSrc = imgEl.src || '';
+        if (currentSrc.includes('/assets/sprites/pokemon/')) {
+            imgEl.src = `/sprites/pokemon/${realId}.png`;
+        } else if (currentSrc.includes('/sprites/pokemon/')) {
+            imgEl.src = `/game/sprites/${realId}.png`;
+        } else if (currentSrc.includes('/game/sprites/')) {
+            imgEl.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/${realId}.png`;
+        } else {
+            imgEl.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/${realId}.png`;
+        }
+    }
 
     function getPokemonImageUrl(pokeId, name, animated = false) {
         if (!pokeId || pokeId <= 0) {
@@ -2120,9 +2168,14 @@
             if (bestBase) realId = bestBase.pokeId;
         }
 
+        // 1) Busca dinamicamente a imagem capturada do DOM da Pokédex do próprio jogo
+        const domImg = getGamePokedexImgFromDOM(realId, name);
+        if (domImg) return domImg;
+
+        // 2) Busca propriedade de imagem no creatures.json se existir
         const creature = creatures.find(c => (c.pokeId || c.id) === realId || c.name?.toLowerCase() === name?.toLowerCase());
         if (creature) {
-            const gameImg = creature.sprite || creature.image || creature.icon || creature.avatar || creature.src || creature.url || creature.spriteUrl || creature.imageUrl;
+            const gameImg = creature.sprite || creature.image || creature.icon || creature.avatar || creature.src || creature.url || creature.spriteUrl || creature.imageUrl || creature.pokedexImage || creature.pokedexSprite;
             if (gameImg) {
                 if (gameImg.startsWith('/') || gameImg.startsWith('http')) return gameImg;
                 return `/game/${gameImg.replace(/^\/+/, '')}`;
@@ -2132,8 +2185,8 @@
         if (animated && realId <= 649) {
             return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${realId}.gif`;
         }
-        // Utiliza a exata imagem estática da Pokédex oficial do jogo (Gen 5 Black/White)
-        return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/${realId}.png`;
+        // 3) Rota nativa de assets do servidor do jogo
+        return `/assets/sprites/pokemon/${realId}.png`;
     }
 
     function openPokedexModal() {
@@ -2266,7 +2319,7 @@
                     <div class="piw-poke-check">✓</div>
                     ${canShiny ? '<div class="piw-poke-shiny">✨</div>' : ''}
                     <button class="piw-hunt-card-btn" data-name="${p.name}" title="Caçar agora">⚔</button>
-                    <img class="piw-poke-img" src="${img}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${p.pokeId || 1}.png'">
+                    <img class="piw-poke-img" src="${img}" alt="${p.name}" loading="lazy" data-realid="${p.pokeId}" data-pokename="${p.name}" onerror="handlePokeImgError(this)">
                     <div class="piw-poke-num">#${String(p.pokeId).padStart(3,'0')}</div>
                     <div class="piw-poke-name" title="${p.name}">${p.name}</div>
                     <div class="piw-poke-level">Lv.${p.level}</div>
