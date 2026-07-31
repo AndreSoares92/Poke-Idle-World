@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.4.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -406,10 +406,19 @@
         const id = Number(speciesId);
         if (!Number.isFinite(id) || id <= 0) return null;
         const shinyPath = isShiny ? 'shiny/' : '';
-        const base = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon';
+        const creature = creatures.find(c => (c.pokeId || c.id) === id);
+        if (creature) {
+            const gameImg = isShiny
+                ? (creature.shinySprite || creature.shinyImage || creature.shinyIcon || creature.sprite || creature.image)
+                : (creature.sprite || creature.image || creature.icon || creature.avatar);
+            if (gameImg) {
+                const fullPath = gameImg.startsWith('/') || gameImg.startsWith('http') ? gameImg : `/game/${gameImg.replace(/^\/+/, '')}`;
+                return { anim: fullPath, still: fullPath };
+            }
+        }
         return {
-            anim: `${base}/versions/generation-v/black-white/animated/${shinyPath}${id}.gif`,
-            still: `${base}/${shinyPath}${id}.png`
+            anim: `/sprites/pokemon/animated/${shinyPath}${id}.gif`,
+            still: `/sprites/pokemon/${shinyPath}${id}.png`
         };
     }
 
@@ -2098,26 +2107,32 @@
             }
         }
         if (!pokeId || pokeId <= 0) return '';
-        if (pokeId < 10000) {
-            if (animated && pokeId <= 649) {
-                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pokeId}.gif`;
-            }
-            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
-        }
-        let bestBase = null;
-        for (const c of creatures) {
-            if (c.pokeId >= 10000 || !c.name) continue;
-            if (name?.toLowerCase().includes(c.name.toLowerCase())) {
-                if (!bestBase || c.name.length > bestBase.name.length) bestBase = c;
+
+        const creature = creatures.find(c => (c.pokeId || c.id) === pokeId || c.name?.toLowerCase() === name?.toLowerCase());
+        if (creature) {
+            const gameImg = creature.sprite || creature.image || creature.icon || creature.avatar || creature.src || creature.url || creature.spriteUrl || creature.imageUrl;
+            if (gameImg) {
+                if (gameImg.startsWith('/') || gameImg.startsWith('http')) return gameImg;
+                return `/game/${gameImg.replace(/^\/+/, '')}`;
             }
         }
-        if (bestBase) {
-            if (animated && bestBase.pokeId <= 649) {
-                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${bestBase.pokeId}.gif`;
+
+        let realId = pokeId;
+        if (pokeId >= 10000) {
+            let bestBase = null;
+            for (const c of creatures) {
+                if (c.pokeId >= 10000 || !c.name) continue;
+                if (name?.toLowerCase().includes(c.name.toLowerCase())) {
+                    if (!bestBase || c.name.length > bestBase.name.length) bestBase = c;
+                }
             }
-            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${bestBase.pokeId}.png`;
+            if (bestBase) realId = bestBase.pokeId;
         }
-        return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
+
+        if (animated && realId <= 649) {
+            return `/sprites/pokemon/animated/${realId}.gif`;
+        }
+        return `/sprites/pokemon/${realId}.png`;
     }
 
     function openPokedexModal() {
@@ -2250,7 +2265,7 @@
                     <div class="piw-poke-check">✓</div>
                     ${canShiny ? '<div class="piw-poke-shiny">✨</div>' : ''}
                     <button class="piw-hunt-card-btn" data-name="${p.name}" title="Caçar agora">⚔</button>
-                    <img class="piw-poke-img" src="${img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">
+                    <img class="piw-poke-img" src="${img}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${p.pokeId || 1}.png'">
                     <div class="piw-poke-num">#${String(p.pokeId).padStart(3,'0')}</div>
                     <div class="piw-poke-name" title="${p.name}">${p.name}</div>
                     <div class="piw-poke-level">Lv.${p.level}</div>
