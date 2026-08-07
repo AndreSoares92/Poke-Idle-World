@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.4.3
+// @version      1.4.4
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1159,7 +1159,7 @@
           <line x1="10" y1="50" x2="32" y2="50" stroke="#141826" stroke-width="6"/>
           <line x1="68" y1="50" x2="90" y2="50" stroke="#141826" stroke-width="6"/>
         </svg>`;
-        reopenBtn.title = 'Abrir Poke Helper';
+        reopenBtn.title = 'Poke Helper';
 
         const attached = attachReopenBtnToDock();
         if (!attached) {
