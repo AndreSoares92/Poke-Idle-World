@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.4.3
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -612,7 +612,7 @@
 .piw-panel .piw-btns-row .piw-btn { flex: 1; font-size: 10px; padding: 3px 6px; }
 
 #piw-reopen {
-    position: fixed; top: 10px; right: 10px; z-index: 2147483647;
+    visibility: hidden; position: fixed; top: 10px; right: 10px; z-index: 2147483647;
     width: 36px; height: 36px; border-radius: 10px;
     background: linear-gradient(165deg, #161a29, #0d0f18);
     border: 1px solid rgba(132,144,255,.35);
@@ -623,19 +623,23 @@
 }
 #piw-reopen.piw-dock-mode {
     position: relative !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
-    width: 24px !important; height: 24px !important; border-radius: 0 !important;
+    width: auto !important; height: auto !important; border-radius: 0 !important;
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-    margin: 0 4px !important; flex-shrink: 0;
+    margin: 0 3px !important; flex-shrink: 0;
     display: inline-flex !important; align-items: center; justify-content: center;
+    align-self: center !important; vertical-align: middle !important; line-height: 1 !important;
     cursor: pointer !important; z-index: 1000; padding: 0 !important;
+}
+#piw-reopen.piw-dock-mode svg {
+    width: 18px !important; height: 18px !important; display: block !important; margin: auto !important;
 }
 #piw-reopen.piw-dock-mode:hover {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
-    transform: scale(1.18);
+    transform: scale(1.15);
     filter: drop-shadow(0 0 6px rgba(132,144,255,.8));
 }
 #piw-reopen:hover {
@@ -1145,6 +1149,7 @@
         const closeBtn = panel.querySelector('#piw-close-panel');
         const reopenBtn = document.createElement('button');
         reopenBtn.id = 'piw-reopen';
+        reopenBtn.style.visibility = 'hidden';
         reopenBtn.innerHTML = `<svg width="22" height="22" viewBox="0 0 100 100" style="display:block; pointer-events:none;">
           <path d="M 50 10 A 40 40 0 0 1 90 50 L 68 50 A 18 18 0 0 0 32 50 L 10 50 A 40 40 0 0 1 50 10 Z" fill="#ff4d4d"/>
           <path d="M 10 50 L 32 50 A 18 18 0 0 0 68 50 L 90 50 A 40 40 0 0 1 50 90 A 40 40 0 0 1 10 50 Z" fill="#ffffff"/>
@@ -1156,8 +1161,8 @@
         </svg>`;
         reopenBtn.title = 'Abrir Poke Helper';
 
-        attachReopenBtnToDock();
-        if (!reopenBtn.parentElement) {
+        const attached = attachReopenBtnToDock();
+        if (!attached) {
             document.body.appendChild(reopenBtn);
             const savedReopenPos = GM_getValue('piw_reopenPos', null);
             if (savedReopenPos && !isNaN(parseFloat(savedReopenPos.left)) && !isNaN(parseFloat(savedReopenPos.top))) {
@@ -2579,7 +2584,7 @@
 
     function attachReopenBtnToDock() {
         const reopenBtn = document.getElementById('piw-reopen');
-        if (!reopenBtn) return;
+        if (!reopenBtn) return false;
         const sampleDockBtn = document.querySelector('button.dock-btn, .dock-btn, [class*="dock-btn"]');
         if (sampleDockBtn && sampleDockBtn.parentElement) {
             const dockContainer = sampleDockBtn.parentElement;
@@ -2589,12 +2594,22 @@
                 } else {
                     dockContainer.appendChild(reopenBtn);
                 }
-                reopenBtn.classList.add('piw-dock-mode');
+                reopenBtn.classList.add('dock-btn', 'piw-dock-mode');
             }
+            reopenBtn.style.visibility = 'visible';
+            return true;
         }
+        return false;
     }
 
-    // Polling para detectar rota e anexar ao dock do jogo
+    // Polling contínuo rápido para anexar ao dock do jogo sem sobressalto na tela
+    const dockCheckTimer = setInterval(() => {
+        if (attachReopenBtnToDock()) {
+            clearInterval(dockCheckTimer);
+        }
+    }, 100);
+
+    // Polling regular para detectar rota e manter UI sincronizada
     setInterval(() => { detectRoute(); attachReopenBtnToDock(); syncUI(); }, 2000);
 
     // ========== WEBSOCKET INTERCEPTION ==========
