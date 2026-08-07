@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.4.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -621,6 +621,21 @@
     display: none; align-items: center; justify-content: center;
     transition: background .15s, border-color .15s, box-shadow .15s, transform .15s; user-select: none;
 }
+#piw-reopen.piw-dock-mode {
+    position: relative !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
+    width: 28px !important; height: 28px !important; border-radius: 6px;
+    background: linear-gradient(165deg, rgba(22,26,41,0.85), rgba(13,15,24,0.85)) !important;
+    border: 1px solid rgba(132,144,255,.4) !important;
+    margin: 0 2px !important; flex-shrink: 0;
+    display: inline-flex !important; align-items: center; justify-content: center;
+    cursor: pointer !important; z-index: 1000;
+}
+#piw-reopen.piw-dock-mode:hover {
+    background: linear-gradient(165deg, #22283d, #141826) !important;
+    border-color: rgba(132,144,255,.7) !important;
+    box-shadow: 0 0 10px rgba(132,144,255,.5);
+    transform: scale(1.1);
+}
 #piw-reopen:hover {
     background: linear-gradient(165deg, #22283d, #141826);
     border-color: rgba(132,144,255,.6);
@@ -1153,6 +1168,7 @@
             reopenBtn.style.left = 'auto';
         }
         makeDraggable(reopenBtn, reopenBtn, 'piw_reopenPos');
+        attachReopenBtnToDock();
 
         let panelClosed = GM_getValue('piw_panelClosed', false);
         if (panelClosed) {
@@ -2556,8 +2572,21 @@
         }
     }
 
-    // Polling para detectar rota
-    setInterval(() => { detectRoute(); syncUI(); }, 3000);
+    function attachReopenBtnToDock() {
+        const reopenBtn = document.getElementById('piw-reopen');
+        if (!reopenBtn) return;
+        const sampleDockBtn = document.querySelector('button.dock-btn, .dock-btn, [class*="dock-btn"]');
+        if (sampleDockBtn && sampleDockBtn.parentElement) {
+            const dockContainer = sampleDockBtn.parentElement;
+            if (reopenBtn.parentElement !== dockContainer) {
+                dockContainer.appendChild(reopenBtn);
+                reopenBtn.classList.add('piw-dock-mode');
+            }
+        }
+    }
+
+    // Polling para detectar rota e anexar ao dock do jogo
+    setInterval(() => { detectRoute(); attachReopenBtnToDock(); syncUI(); }, 2000);
 
     // ========== WEBSOCKET INTERCEPTION ==========
     const origSend = WebSocket.prototype.send;
