@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.4.4
+// @version      1.5.1
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -125,13 +125,13 @@
         return pokeTypes.some(t => weakTypes.includes(t));
     }
 
-    // Tabela fixa dos pokémons que têm versão shiny no jogo (64 espécies)
+    // Tabela fixa dos pokémons que têm versão shiny no jogo (167 espécies)
     const SHINY_SPECIES_IDS = new Set([
-        3, 6, 9, 12, 15, 18, 19, 20, 22, 26, 34, 41, 43, 45,
-        46, 47, 48, 49, 58, 59, 63, 65, 68, 72, 73, 76, 82, 83,
-        88, 89, 94, 95, 97, 98, 99, 100, 101, 104, 105, 106, 107, 114,
-        116, 117, 122, 123, 124, 125, 126, 127, 128, 129, 130, 132, 134, 135,
-        136, 143, 147, 148, 157, 178, 181, 247
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 26, 28, 31, 34, 36, 38, 40,
+        41, 43, 44, 45, 46, 47, 48, 49, 51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 65, 66, 67, 68, 72, 73, 74, 75, 76, 78, 79, 80, 81, 82, 83,
+        84, 85, 88, 89, 90, 91, 92, 93, 94, 95, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 109, 110, 111, 112, 114, 116, 117, 118, 121, 122, 123, 124, 125, 126,
+        127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 143, 147, 148, 152, 153, 154, 155, 156, 157, 159, 160, 168, 169, 171, 175, 177, 178, 179, 181, 186, 196, 197, 203, 204, 208,
+        210, 211, 213, 217, 218, 219, 220, 221, 222, 228, 229, 230, 231, 232, 234, 236, 241, 246, 247, 252, 256, 257, 259, 260, 280, 281, 282, 304, 305, 306, 310, 447, 448, 472
     ]);
 
     // ========== DADOS DO IV HELPER ==========
@@ -2080,13 +2080,11 @@
             return `<div class="piw-pokemon-item${sel?' selected':''}" data-name="${pokemon.name}">
                 <span class="piw-check">${sel ? '✓' : ''}</span>
                 ${pokemon.name}${lvlText}${shinyIcon}
-                <button class="piw-hunt-now" data-name="${pokemon.name}" title="Caçar agora">⚔</button>
             </div>`;
         }).join('');
 
         list.querySelectorAll('.piw-pokemon-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                if (e.target.closest('.piw-hunt-now')) return;
+            item.addEventListener('click', () => {
                 const name = item.dataset.name;
                 if (selectedPokemon.includes(name)) {
                     selectedPokemon = selectedPokemon.filter(n => n !== name);
@@ -2096,15 +2094,6 @@
                 GM_setValue('piw_selectedPokemon', selectedPokemon);
                 renderSelectedTags();
                 renderPokemonList(document.getElementById('piw-search')?.value || '');
-            });
-        });
-        list.querySelectorAll('.piw-hunt-now').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const name = btn.dataset.name;
-                const overlayEl = document.querySelector('.piw-modal-overlay');
-                if (overlayEl) { pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false; overlayEl.remove(); }
-                navigateToPokemon(name);
             });
         });
     }
@@ -2275,7 +2264,6 @@
                 return `<div class="piw-poke-card${sel?' selected':''}" data-name="${p.name}">
                     <div class="piw-poke-check">✓</div>
                     ${canShiny ? '<div class="piw-poke-shiny">✨</div>' : ''}
-                    <button class="piw-hunt-card-btn" data-name="${p.name}" title="Caçar agora">⚔</button>
                     <img class="piw-poke-img" src="${img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">
                     <div class="piw-poke-num">#${String(p.pokeId).padStart(3,'0')}</div>
                     <div class="piw-poke-name" title="${p.name}">${p.name}</div>
@@ -2289,8 +2277,7 @@
             infoEl.textContent = `${tempSelected.length} selecionado(s)`;
 
             grid.querySelectorAll('.piw-poke-card').forEach(card => {
-                card.addEventListener('click', (e) => {
-                    if (e.target.closest('.piw-hunt-card-btn')) return;
+                card.addEventListener('click', () => {
                     const name = card.dataset.name;
                     if (tempSelected.includes(name)) {
                         tempSelected = tempSelected.filter(n => n !== name);
@@ -2299,15 +2286,6 @@
                     }
                     card.classList.toggle('selected');
                     infoEl.textContent = `${tempSelected.length} selecionado(s)`;
-                });
-            });
-            grid.querySelectorAll('.piw-hunt-card-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const name = btn.dataset.name;
-                    pokedexModalTypeFilter = ''; pokedexModalFilter = ''; pokedexModalWeakOnly = false;
-                    overlay.remove();
-                    navigateToPokemon(name);
                 });
             });
         }
