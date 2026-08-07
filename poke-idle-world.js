@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -623,18 +623,20 @@
 }
 #piw-reopen.piw-dock-mode {
     position: relative !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
-    width: 28px !important; height: 28px !important; border-radius: 6px;
-    background: linear-gradient(165deg, rgba(22,26,41,0.85), rgba(13,15,24,0.85)) !important;
-    border: 1px solid rgba(132,144,255,.4) !important;
-    margin: 0 2px !important; flex-shrink: 0;
+    width: 24px !important; height: 24px !important; border-radius: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 4px !important; flex-shrink: 0;
     display: inline-flex !important; align-items: center; justify-content: center;
-    cursor: pointer !important; z-index: 1000;
+    cursor: pointer !important; z-index: 1000; padding: 0 !important;
 }
 #piw-reopen.piw-dock-mode:hover {
-    background: linear-gradient(165deg, #22283d, #141826) !important;
-    border-color: rgba(132,144,255,.7) !important;
-    box-shadow: 0 0 10px rgba(132,144,255,.5);
-    transform: scale(1.1);
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: scale(1.18);
+    filter: drop-shadow(0 0 6px rgba(132,144,255,.8));
 }
 #piw-reopen:hover {
     background: linear-gradient(165deg, #22283d, #141826);
@@ -1153,21 +1155,24 @@
           <line x1="68" y1="50" x2="90" y2="50" stroke="#141826" stroke-width="6"/>
         </svg>`;
         reopenBtn.title = 'Abrir Poke Helper';
-        document.body.appendChild(reopenBtn);
 
-        const savedReopenPos = GM_getValue('piw_reopenPos', null);
-        if (savedReopenPos && !isNaN(parseFloat(savedReopenPos.left)) && !isNaN(parseFloat(savedReopenPos.top))) {
-            reopenBtn.style.left = parseFloat(savedReopenPos.left) + 'px';
-            reopenBtn.style.top = parseFloat(savedReopenPos.top) + 'px';
-            reopenBtn.style.right = 'auto';
-            reopenBtn.style.bottom = 'auto';
-        } else {
-            reopenBtn.style.top = '10px';
-            reopenBtn.style.right = '10px';
-            reopenBtn.style.bottom = 'auto';
-            reopenBtn.style.left = 'auto';
+        attachReopenBtnToDock();
+        if (!reopenBtn.parentElement) {
+            document.body.appendChild(reopenBtn);
+            const savedReopenPos = GM_getValue('piw_reopenPos', null);
+            if (savedReopenPos && !isNaN(parseFloat(savedReopenPos.left)) && !isNaN(parseFloat(savedReopenPos.top))) {
+                reopenBtn.style.left = parseFloat(savedReopenPos.left) + 'px';
+                reopenBtn.style.top = parseFloat(savedReopenPos.top) + 'px';
+                reopenBtn.style.right = 'auto';
+                reopenBtn.style.bottom = 'auto';
+            } else {
+                reopenBtn.style.top = '10px';
+                reopenBtn.style.right = '10px';
+                reopenBtn.style.bottom = 'auto';
+                reopenBtn.style.left = 'auto';
+            }
+            makeDraggable(reopenBtn, reopenBtn, 'piw_reopenPos');
         }
-        makeDraggable(reopenBtn, reopenBtn, 'piw_reopenPos');
         attachReopenBtnToDock();
 
         let panelClosed = GM_getValue('piw_panelClosed', false);
@@ -2579,7 +2584,11 @@
         if (sampleDockBtn && sampleDockBtn.parentElement) {
             const dockContainer = sampleDockBtn.parentElement;
             if (reopenBtn.parentElement !== dockContainer) {
-                dockContainer.appendChild(reopenBtn);
+                if (dockContainer.firstChild) {
+                    dockContainer.insertBefore(reopenBtn, dockContainer.firstChild);
+                } else {
+                    dockContainer.appendChild(reopenBtn);
+                }
                 reopenBtn.classList.add('piw-dock-mode');
             }
         }
