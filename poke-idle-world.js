@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.6.2
+// @version      1.7.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1307,8 +1307,12 @@
         if (leaderName) {
             const domLv = getLeaderLevelFromDOM();
             if (domLv !== null && domLv > 0) {
-                leaderLevel = domLv;
-                if (currentLeaderData) currentLeaderData.level = domLv;
+                if (domLv !== leaderLevel) {
+                    leaderLevel = domLv;
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
+                    }
+                }
             } else if (!leaderLevel && currentLeaderData) {
                 leaderLevel = currentLeaderData.level || currentLeaderData.lvl || currentLeaderData.pokemonLevel || 0;
             }
@@ -1451,6 +1455,9 @@
         win.style.display = infoWindowVisible ? 'flex' : 'none';
         if (infoWindowVisible) {
             bringToFront(win);
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
+            }
             renderInfoWindow();
         }
     }
