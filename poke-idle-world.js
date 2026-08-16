@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.6.2
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -413,10 +413,20 @@
         };
     }
 
+    function cleanPokemonName(rawName) {
+        if (!rawName) return '';
+        return rawName
+            .replace(/\s*\d+(\.\d+)?%\s*/gi, '')
+            .replace(/\s*\([^)]*%\)/gi, '')
+            .replace(/\s*\[[^\]]*%\]/gi, '')
+            .trim();
+    }
+
     function getLeaderStatsFromDOM() {
         const activeMon = document.querySelector(".phud-party .phud-mon.active, .phud-party .phud-mon");
         if (!activeMon) return null;
-        const name = activeMon.querySelector(".phud-name")?.textContent?.trim() || "";
+        const rawName = activeMon.querySelector(".phud-name")?.textContent || "";
+        const name = cleanPokemonName(rawName);
         const lvMatch = (activeMon.querySelector(".phud-lv")?.textContent || "").match(/\d+/);
         const level = lvMatch ? Number(lvMatch[0]) : null;
 
@@ -1452,6 +1462,25 @@
         const body = win.querySelector('.piw-iw-body');
         if (!body) return;
 
+        const domLeader = getLeaderFromDOM();
+        if (domLeader && domLeader.name.toLowerCase() !== leaderName.toLowerCase()) {
+            leaderName = domLeader.name;
+            leaderLevel = domLeader.level;
+            const c = creatures.find(cr => cr.name?.toLowerCase() === domLeader.name.toLowerCase());
+            if (c) {
+                leaderPokeId = c.pokeId || c.id || 0;
+                leaderTypes = [c.type1, c.type2].filter(Boolean);
+                if (currentLeaderData) {
+                    currentLeaderData.name = c.name;
+                    currentLeaderData.speciesId = c.pokeId || c.id;
+                    currentLeaderData.pokeId = c.pokeId || c.id;
+                    currentLeaderData.type1 = c.type1;
+                    currentLeaderData.type2 = c.type2;
+                    currentLeaderData.level = domLeader.level;
+                }
+            }
+        }
+
         let leader = currentLeaderData;
         if (!leader && leaderName) {
             const c = creatures.find(c => c.name?.toLowerCase() === leaderName.toLowerCase());
@@ -1466,7 +1495,6 @@
             }
         }
         if (!leader) {
-            const domLeader = getLeaderFromDOM();
             if (domLeader) {
                 leaderName = domLeader.name;
                 leaderLevel = domLeader.level;
@@ -1493,12 +1521,10 @@
             return;
         }
 
-        const name = leader?.name || leaderName || '?';
+        const name = cleanPokemonName(leader?.name || leaderName || '?');
         const level = leaderLevel || leader?.level || 1;
-        const speciesId = leader.speciesId || leader.pokeId || leaderPokeId || (() => {
-            const c = creatures.find(c => c.name?.toLowerCase() === name.toLowerCase());
-            return c?.pokeId || c?.id || 0;
-        })();
+        const currentCreature = creatures.find(c => c.name?.toLowerCase() === name.toLowerCase());
+        const speciesId = currentCreature?.pokeId || currentCreature?.id || leader.speciesId || leader.pokeId || leaderPokeId || 0;
 
         const types = [leader.type1, leader.type2].filter(Boolean);
         if (types.length === 0 && leaderTypes.length > 0) types.push(...leaderTypes);
@@ -1518,7 +1544,8 @@
         const expPct = leader.expPct ?? domData?.expPct ?? null;
 
         const baseStats = getBaseStatsForSpecies(speciesId);
-        const calculatedIVs = computeExactIVs({ ...leader, speciesId, level });
+        const levelForIV = leader.level || leaderLevel || 1;
+        const calculatedIVs = computeExactIVs({ ...leader, speciesId, level: levelForIV });
 
         let qualityChipHtml = `<span class="piw-iw-chip">Quality <b>${quality ?? '?'}</b></span>`;
         if (qTier && quality) {
@@ -2680,10 +2707,13 @@
                             if (movesWindowVisible) renderMovesWindow();
                         }
                     }
-                    // Detecta lista de pokémons (líder + shiny)
-                    if (data && data.type === 'pokes' && data.list) {
-                        detectShinyFromPokes(data.list);
-                        updateLeader(data.list);
+                    // Detecta lista/atualização de pokémons (líder + stats + shiny)
+                    if (data && (data.type === 'pokes' || data.type === 'poke-update' || data.type === 'party' || data.type === 'level-up')) {
+                        const list = data.list || data.pokes || (data.poke ? [data.poke] : null);
+                        if (list && Array.isArray(list)) {
+                            detectShinyFromPokes(list);
+                            updateLeader(list);
+                        }
                     }
                 } catch(e) {
                     GM_log('[AutoHunt] Erro no WS onmessage:', e);
@@ -2695,30 +2725,33 @@
     });
 
     setInterval(() => {
-        if (leaderName) {
-            const domLevel = getLeaderLevelFromDOM();
-            if (domLevel !== null && domLevel !== leaderLevel) {
-                leaderLevel = domLevel;
-                syncUI();
-                GM_log('[AutoHunt] Level atualizado via DOM:', leaderLevel);
-            }
-        } else {
-            // Tenta detectar líder via DOM se ainda não tiver detectado
-            const domLeader = getLeaderFromDOM();
-            if (domLeader) {
-                leaderName = domLeader.name;
-                leaderLevel = domLeader.level;
-                if (creatures && creatures.length > 0) {
-                    const c = creatures.find(cr => cr.name?.toLowerCase() === leaderName.toLowerCase());
-                    if (c) {
-                        leaderPokeId = c.pokeId || 0;
-                        leaderTypes = [c.type1, c.type2].filter(Boolean);
-                    }
+        const domLeader = getLeaderFromDOM();
+        if (domLeader) {
+            const hasEvolved = leaderName && domLeader.name.toLowerCase() !== leaderName.toLowerCase();
+            const levelUp = leaderLevel > 0 && domLeader.level !== leaderLevel;
+            leaderName = domLeader.name;
+            leaderLevel = domLeader.level;
+            const c = creatures.find(cr => cr.name?.toLowerCase() === leaderName.toLowerCase());
+            if (c) {
+                leaderPokeId = c.pokeId || c.id || 0;
+                leaderTypes = [c.type1, c.type2].filter(Boolean);
+                if (currentLeaderData) {
+                    currentLeaderData.name = c.name;
+                    currentLeaderData.speciesId = c.pokeId || c.id;
+                    currentLeaderData.pokeId = c.pokeId || c.id;
+                    currentLeaderData.type1 = c.type1;
+                    currentLeaderData.type2 = c.type2;
                 }
-                syncUI();
+            }
+            syncUI();
+            if (hasEvolved || levelUp) {
+                GM_log('[AutoHunt] Evolução/Level Up detectado via DOM:', leaderName, 'Lv', leaderLevel);
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
+                }
             }
         }
-    }, 2000);
+    }, 1500);
 
     let sessionShinyCount = 0;
     let isFirstPokesCheck = true;
@@ -2761,7 +2794,7 @@
             const nameEl = mon.querySelector(".phud-name");
             const lvEl = mon.querySelector(".phud-lv");
             if (nameEl) {
-                const name = nameEl.textContent?.trim() || "";
+                const name = cleanPokemonName(nameEl.textContent);
                 const lvMatch = (lvEl?.textContent || "").match(/\d+/);
                 const level = lvMatch ? Number(lvMatch[0]) : 1;
                 if (name && (isActive || partyMon.length === 1)) return { name, level };
@@ -2771,7 +2804,7 @@
             const nameEl = partyMon[0].querySelector(".phud-name");
             const lvEl = partyMon[0].querySelector(".phud-lv");
             if (nameEl) {
-                const name = nameEl.textContent?.trim() || "";
+                const name = cleanPokemonName(nameEl.textContent);
                 const lvMatch = (lvEl?.textContent || "").match(/\d+/);
                 const level = lvMatch ? Number(lvMatch[0]) : 1;
                 if (name) return { name, level };
@@ -2779,7 +2812,7 @@
         }
         const generalName = document.querySelector(".phud-name, [class*='party-name'], [class*='mon-name']");
         if (generalName) {
-            const name = generalName.textContent?.trim() || "";
+            const name = cleanPokemonName(generalName.textContent);
             if (name) return { name, level: 1 };
         }
         return null;
@@ -2790,13 +2823,11 @@
         for (const mon of partyMon) {
             const isActive = mon.classList.contains("active") || /\(ativo\)/i.test(mon.title || "");
             if (!isActive) continue;
-            const nameEl = mon.querySelector(".phud-name");
             const lvEl = mon.querySelector(".phud-lv");
-            if (!nameEl || !lvEl) continue;
-            const name = nameEl.textContent?.trim() || "";
+            if (!lvEl) continue;
             const lvMatch = (lvEl.textContent || "").match(/\d+/);
             const level = lvMatch ? Number(lvMatch[0]) : NaN;
-            if (Number.isFinite(level) && (!leaderName || name.toLowerCase() === leaderName.toLowerCase())) {
+            if (Number.isFinite(level)) {
                 return level;
             }
         }
@@ -2809,7 +2840,7 @@
         const leader = team.find(p => p.leader) ?? team[0];
         if (leader) {
             currentLeaderData = leader;
-            const newName = leader.name;
+            const newName = cleanPokemonName(leader.name);
             const newTypes = [leader.type1, leader.type2].filter(Boolean);
             let newLevel = leader.level || leader.lvl || leader.pokemonLevel || leader.currentLevel || 0;
             const domLevel = getLeaderLevelFromDOM();
