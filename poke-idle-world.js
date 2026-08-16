@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
+// @version      1.7.2
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1735,25 +1735,73 @@
         return [];
     }
 
+    function isLeaderKnownMove(moveName) {
+        if (!moveName) return false;
+        const nameLower = moveName.trim().toLowerCase();
+        if (currentLeaderData) {
+            if (Array.isArray(currentLeaderData.moves)) {
+                if (currentLeaderData.moves.some(m => (typeof m === 'string' ? m : m?.name)?.toLowerCase() === nameLower)) return true;
+            }
+            if (Array.isArray(currentLeaderData.attacks)) {
+                if (currentLeaderData.attacks.some(m => (typeof m === 'string' ? m : m?.name)?.toLowerCase() === nameLower)) return true;
+            }
+            if (Array.isArray(currentLeaderData.skills)) {
+                if (currentLeaderData.skills.some(m => (typeof m === 'string' ? m : m?.name)?.toLowerCase() === nameLower)) return true;
+            }
+        }
+        if (leaderName && creatures && creatures.length > 0) {
+            const c = creatures.find(cr => cr.name?.toLowerCase() === leaderName.toLowerCase());
+            if (c) {
+                const cMoves = extractPokemonMoves(null, c);
+                if (cMoves && cMoves.some(m => m.name && m.name.toLowerCase() === nameLower)) return true;
+            }
+        }
+        return false;
+    }
+
     function extractCombatHit(data, depth = 0, parentKey = '') {
         if (!data || typeof data !== 'object' || depth > 5) return null;
+
+        // Se o objeto ou contexto indicar que é ataque disparado pelo jogador / contra o inimigo:
+        const isOutgoing = (
+            data.target === 'enemy' || data.target === 'wild' || data.target === 'mob' || data.target === 'opponent' ||
+            data.source === 'player' || data.from === 'player' || data.attacker === 'player' ||
+            data.sourceTeam === 'player' || data.targetTeam === 'enemy' ||
+            data.isEnemyTarget === true || data.toEnemy === true || data.outgoing === true ||
+            (data.isPlayer === true && !data.isPlayerTarget) ||
+            /dealt|outgoing|toEnemy|enemyDamage|hitEnemy/i.test(parentKey)
+        );
+
+        if (isOutgoing) return null;
+
         const moveName = data.moveName || data.attackName || data.spellName || (typeof data.move === 'string' ? data.move : data.move?.name) || data.attack;
         const dmg = Number(data.damage ?? data.dmg ?? data.dano ?? data.amount);
+
         if (typeof moveName === 'string' && moveName.trim() && Number.isFinite(dmg)) {
-            const isTaken = Boolean(
-                data.taken || data.received || data.incoming ||
-                /taken|received|incoming|enemy|foe|mob|wild/i.test(parentKey)
+            const cleanName = moveName.trim();
+
+            const isExplicitlyTaken = Boolean(
+                data.taken || data.received || data.incoming || data.isPlayerTarget ||
+                data.target === 'player' || data.targetTeam === 'player' || data.to === 'player' ||
+                /taken|received|incoming|playerDamage|hitPlayer/i.test(parentKey)
             );
+
+            if (!isExplicitlyTaken && isLeaderKnownMove(cleanName)) {
+                return null; // É o próprio jogador atacando o oponente
+            }
+
             return {
-                name: moveName.trim(),
+                name: cleanName,
                 dmg: dmg,
-                type: typeof data.type === 'string' ? data.type : null,
+                type: typeof data.type === 'string' && data.type !== 'battle' && data.type !== 'hit' ? data.type : null,
                 eff: Number.isFinite(Number(data.eff)) ? Number(data.eff) : null,
-                taken: isTaken
+                taken: true
             };
         }
+
         for (const [key, val] of Object.entries(data)) {
             if (typeof val === 'object' && val !== null) {
+                if (/dealt|outgoing|enemyDamage|toEnemy|playerAttacks/i.test(key)) continue;
                 const sub = extractCombatHit(val, depth + 1, key);
                 if (sub) return sub;
             }
@@ -1942,7 +1990,7 @@
         html += pokemonMoves.map(m => renderMoveItem(m, false)).join('');
 
         if (takenMovesList.length > 0) {
-            html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px">🛡 GOLPES TOMADOS <small style="color:#7d86ad;text-transform:none;letter-spacing:0">· nesta hunt</small></div>`;
+            html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px">🛡 GOLPES RECEBIDOS <small style="color:#7d86ad;text-transform:none;letter-spacing:0">· nesta hunt</small></div>`;
             html += takenMovesList.map(m => renderMoveItem(m, true)).join('');
         }
 
