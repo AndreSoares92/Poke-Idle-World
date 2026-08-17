@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
+// @version      3.0.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -19,40 +19,165 @@
 (function() {
     'use strict';
 
+    // ========== PROXY INJECTION (INTERCEPTAÇÃO DIRETA NO CONTEXTO DA PÁGINA) ==========
+    try {
+        const injectScript = document.createElement('script');
+        injectScript.textContent = `
+            (() => {
+                const origWS = window.WebSocket;
+                window.WebSocket = new Proxy(origWS, {
+                    construct(target, args) {
+                        const ws = new target(...args);
+                        ws.addEventListener('message', (event) => {
+                            if (typeof event.data === 'string') {
+                                window.postMessage({ __piwHelper: true, source: 'ws', data: event.data }, '*');
+                            }
+                        });
+                        return ws;
+                    }
+                });
+                window.WebSocket.prototype = origWS.prototype;
+
+                const origFetch = window.fetch;
+                window.fetch = async function(...args) {
+                    const resp = await origFetch.apply(this, args);
+                    try {
+                        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+                        const clone = resp.clone();
+                        const text = await clone.text();
+                        window.postMessage({ __piwHelper: true, source: 'fetch:' + url, data: text }, '*');
+                    } catch(e) {}
+                    return resp;
+                };
+
+                const origXHR = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                    this.addEventListener('load', () => {
+                        try {
+                            if (typeof this.responseText === 'string') {
+                                window.postMessage({ __piwHelper: true, source: 'xhr:' + url, data: this.responseText }, '*');
+                            }
+                        } catch(e) {}
+                    });
+                    return origXHR.call(this, method, url, ...rest);
+                };
+            })();
+        `;
+        (document.head || document.documentElement).appendChild(injectScript);
+        injectScript.remove();
+    } catch(e) {}
+
     // ========== CONFIG (persistida) ==========
+    const SCRIPT_VERSION = '3.0.0';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
     GM_setValue('piw_enabled', false);
     let selectedPokemon  = GM_getValue('piw_selectedPokemon', []); // Array de nomes
-    let huntRoutes       = []; // {slug, name, level} de todas as rotas
 
-    // Cidades (não troca automaticamente)
-    const CITY_SLUGS = new Set(['cerulean', 'pewter', 'viridian', 'cassino', 'lavender']);
+    // Cidades (não troca automaticamente e pausa o cronômetro)
+    const CITY_SLUGS = new Set([
+        'cerulean', 'pewter', 'viridian', 'cassino', 'casino', 'lavender',
+        'pallet', 'pallet-town', 'vermilion', 'celadon', 'fuchsia', 'saffron', 'cinnabar',
+        'city', 'town', 'village', 'depot', 'center', 'market', 'home', 'pokecenter'
+    ]);
+
+    function isCity() {
+        // 1. Verifica elementos e botões de NPCs no DOM (Nurse Joy, Depot, TM Researcher, Conversar, Abrir Depot)
+        const buttons = document.querySelectorAll('button, div, span, p, a');
+        for (const el of buttons) {
+            if (el.closest('#piw-tracker-window, .piw-panel, #piw-info-window, #piw-moves-window, [id^="piw-"]')) continue;
+            const t = (el.textContent || '').trim();
+            if (t === 'Abrir Depot' || t === 'Conversar' || t === 'Nurse Joy' || t === 'TM Researcher' || t === 'Depot' || /abrir depot/i.test(t)) {
+                return true;
+            }
+        }
+
+        // 2. Se o body contiver Nurse Joy ou Abrir Depot
+        const bodyTxt = document.body ? (document.body.innerText || document.body.textContent || '') : '';
+        if (/nurse joy|abrir depot|tm researcher/i.test(bodyTxt)) {
+            return true;
+        }
+
+        // 3. Botão dock Home ativo
+        const homeBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn.active');
+        if (homeBtn && (homeBtn.getAttribute('data-guide') === 'dock-home' || homeBtn.classList.contains('active'))) {
+            return true;
+        }
+
+        // 4. Slugs e nomes de rota específicos de cidade
+        const slug = (currentSlug || '').toLowerCase().trim();
+        const route = (currentRoute || '').toLowerCase().trim();
+
+        if (slug && CITY_SLUGS.has(slug)) return true;
+        if (route && CITY_SLUGS.has(route)) return true;
+
+        const cityPattern = /cidade|city|town|village|cassino|casino|depot|center|market|pallet|viridian|pewter|cerulean|vermilion|lavender|celadon|fuchsia|saffron|cinnabar|pokecenter/i;
+        if (slug && cityPattern.test(slug)) return true;
+        if (route && cityPattern.test(route)) return true;
+
+        // 5. Interface de cidade
+        if (document.querySelector('.city-container, .city-view, .city-map, [class*="city-screen"], [class*="city-root"], [class*="depot-modal"]')) {
+            return true;
+        }
+
+        if (!slug && !route) return true;
+
+        return false;
+    }
+
+    function getDisplayHuntName() {
+        if (isCity()) {
+            return 'Cidade / Centro Pokémon';
+        }
+
+        // 0. Se a sessão de hunt já identificou o Pokémon ativo na tela
+        if (huntSession?.huntName && !/^(kanto|outland|johto|hoenn|sinnoh|cidade|centro)$/i.test(huntSession.huntName.trim())) {
+            return cleanPokemonName(huntSession.huntName);
+        }
+
+        // 1. Inimigo ou alvo no DOM
+        const enemyEl = document.querySelector('.wild-name, .enemy-name, [class*="wild"] .name, [class*="enemy"] .name, [class*="target"] .name');
+        if (enemyEl?.textContent) {
+            const clean = cleanPokemonName(enemyEl.textContent);
+            if (clean && !/^(kanto|outland)$/i.test(clean)) return clean;
+        }
+
+        const activeMarker = document.querySelector('button.hunt-marker.here .hunt-name, button.hunt-marker.active .hunt-name, .hunt-title');
+        if (activeMarker?.textContent) {
+            const clean = cleanPokemonName(activeMarker.textContent);
+            if (clean && !/^(kanto|outland)$/i.test(clean)) return clean;
+        }
+
+        // 2. Pokémon caçado salvo
+        if (huntingPokemon && !/^(kanto|outland|johto|hoenn|sinnoh)$/i.test(huntingPokemon)) {
+            return cleanPokemonName(huntingPokemon);
+        }
+
+        // 3. Rota atual se não for apenas o nome da região
+        if (currentRoute && !/^(kanto|outland|johto|hoenn|sinnoh)$/i.test(currentRoute.trim())) {
+            return cleanPokemonName(currentRoute);
+        }
+        if (currentSlug && !/^(kanto|outland|johto|hoenn|sinnoh)$/i.test(currentSlug.trim())) {
+            return cleanPokemonName(currentSlug);
+        }
+
+        // 4. Varre textos no topo/campo buscando por nome de Pokémon
+        if (Array.isArray(creatures) && creatures.length > 0) {
+            const candidates = document.querySelectorAll('h1, h2, h3, .field-area, [class*="area-name"], [class*="hunt"]');
+            for (const el of candidates) {
+                const t = (el.textContent || '').trim();
+                const match = creatures.find(c => c.name?.toLowerCase() === t.toLowerCase());
+                if (match && !/^(kanto|outland)$/i.test(match.name)) {
+                    return match.name;
+                }
+            }
+        }
+
+        return currentRoute || currentSlug || 'Caça Ativa';
+    }
 
     // ========== SISTEMA DE TIPOS ==========
-    // Quais tipos são fracos contra cada tipo (quem é efetivo contra quem)
-    const TYPE_WEAKNESS = {
-        NORMAL:   ['FIGHTING'],
-        FIRE:     ['WATER', 'GROUND', 'ROCK'],
-        WATER:    ['GRASS', 'ELECTRIC'],
-        GRASS:    ['FIRE', 'ICE', 'POISON', 'FLYING', 'BUG'],
-        ELECTRIC: ['GROUND'],
-        ICE:      ['FIRE', 'FIGHTING', 'ROCK', 'STEEL'],
-        BUG:      ['FIRE', 'FLYING', 'ROCK'],
-        POISON:   ['GROUND', 'PSYCHIC'],
-        GROUND:   ['WATER', 'GRASS', 'ICE'],
-        ROCK:     ['WATER', 'GRASS', 'FIGHTING', 'GROUND', 'STEEL'],
-        FLYING:   ['ELECTRIC', 'ICE', 'ROCK'],
-        PSYCHIC:  ['BUG', 'GHOST', 'DARK'],
-        GHOST:    ['GHOST', 'DARK'],
-        DRAGON:   ['ICE', 'DRAGON', 'FAIRY'],
-        DARK:     ['FIGHTING', 'BUG', 'FAIRY'],
-        STEEL:    ['FIRE', 'FIGHTING', 'GROUND'],
-        FAIRY:    ['POISON', 'STEEL'],
-        FIGHTING: ['FLYING', 'PSYCHIC', 'FAIRY'],
-    };
-
     // Quais tipos são FORTE contra cada tipo (quem o tipo é efetivo contra)
     const TYPE_SUPER_EFFECTIVE = {
         NORMAL:   [],
@@ -447,7 +572,7 @@
         const hpCurrent = hpParts[0];
         const hpMax = hpParts[1];
 
-        const expTxt = targetMon.querySelector(".sbar-exp .sbar-txt")?.textContent?.trim() || "";
+        const expTxt = targetMon.querySelector(".sbar-exp .sbar-txt, [class*='exp'] .sbar-txt, .exp-txt")?.textContent?.trim() || "";
         const expMatch = expTxt.match(/(\d+(?:\.\d+)?)\s*%/);
         let expPct = expMatch ? parseFloat(expMatch[1]) : null;
 
@@ -455,6 +580,14 @@
             const expParts = expTxt.split('/').map(v => Number(v.replace(/\D/g, '')));
             if (expParts.length === 2 && expParts[1] > 0) {
                 expPct = (expParts[0] / expParts[1]) * 100;
+            }
+        }
+
+        if (expPct === null) {
+            const fill = targetMon.querySelector(".sbar-exp .sbar-fill, .sbar-exp [class*='fill'], [class*='exp'] [class*='fill']");
+            if (fill && fill.style.width) {
+                const w = parseFloat(fill.style.width);
+                if (Number.isFinite(w) && w >= 0) expPct = w;
             }
         }
 
@@ -474,12 +607,7 @@
     let leaderPokeId = 0;
     let leaderLevel = 0;
     let filterWeakOnly = GM_getValue('piw_filterWeakOnly', false);
-    let currentPage = 1;
-    const ITEMS_PER_PAGE = 25;
-    let shinyOnlyMode = GM_getValue('piw_shinyOnly', false);
-    let shinyCount = 0;
     let lastPokesList = []; // Lista anterior de pokémons pra detectar novos shinies
-    let ownedShinies = new Set(); // Removido - não precisa mais
     let shinyAvailable = new Set(); // Nomes dos pokémons que têm versão shiny no jogo
     let filterShinyAvail = GM_getValue('piw_filterShinyAvail', false);
     let loopMode = GM_getValue('piw_loopMode', false);
@@ -513,20 +641,15 @@
     border: 1px solid rgba(132,144,255,.3); border-radius: 14px;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 13px; line-height: 1.4;
-    width: 340px; min-width: 340px; min-height: 200px;
+    width: 320px;
     box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
     backdrop-filter: blur(10px); user-select: none;
-    max-height: 90vh; overflow: hidden;
+    overflow: hidden;
     display: flex; flex-direction: column;
 }
 .piw-panel-inner {
-    padding: 14px; overflow-y: auto; flex: 1 1 auto; min-height: 0; margin-bottom: 12px;
-    scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05);
+    padding: 12px;
 }
-.piw-panel-inner::-webkit-scrollbar { width: 6px; }
-.piw-panel-inner::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 99px; }
-.piw-panel-inner::-webkit-scrollbar-thumb { background: rgba(132,144,255,.38); border-radius: 99px; }
-.piw-panel-inner::-webkit-scrollbar-thumb:hover { background: rgba(132,144,255,.65); }
 .piw-panel { padding-top: 0 !important; }
 .piw-panel h3 {
     margin: 0 0 8px; padding: 10px 14px; font-size: 14px; color: #fff; font-weight: 700;
@@ -546,39 +669,39 @@
     color: #93a0e8; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,.08);
 }
 
-.piw-panel .piw-btn {
+.piw-panel .piw-btn, #piw-autohunt-window .piw-btn {
     background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); color: #e0e4ef; border-radius: 10px;
     padding: 6px 14px; cursor: pointer; font-size: 12px; transition: all .15s; font-weight: 500;
 }
-.piw-panel .piw-btn:hover { background: rgba(132,144,255,.25); border-color: rgba(132,144,255,.4); }
-.piw-panel .piw-btn:active { background: rgba(132,144,255,.35); }
-.piw-panel .piw-btn.piw-btn-primary { background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(91,127,255,.3); }
-.piw-panel .piw-btn.piw-btn-primary:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.4); }
+.piw-panel .piw-btn:hover, #piw-autohunt-window .piw-btn:hover { background: rgba(132,144,255,.25); border-color: rgba(132,144,255,.4); }
+.piw-panel .piw-btn:active, #piw-autohunt-window .piw-btn:active { background: rgba(132,144,255,.35); }
+.piw-panel .piw-btn.piw-btn-primary, #piw-autohunt-window .piw-btn.piw-btn-primary { background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(91,127,255,.3); }
+.piw-panel .piw-btn.piw-btn-primary:hover, #piw-autohunt-window .piw-btn.piw-btn-primary:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.4); }
 
-.piw-panel .piw-stat { font-size: 15px; font-weight: 700; text-align: center; margin: 1px 0; font-variant-numeric: tabular-nums; }
-.piw-panel .piw-stat.piw-kills { color: #f0c040; }
-.piw-panel .piw-stat.piw-captures { color: #4ade80; }
+.piw-panel .piw-stat, #piw-autohunt-window .piw-stat { font-size: 15px; font-weight: 700; text-align: center; margin: 1px 0; font-variant-numeric: tabular-nums; }
+.piw-panel .piw-stat.piw-kills, #piw-autohunt-window .piw-stat.piw-kills { color: #f0c040; }
+.piw-panel .piw-stat.piw-captures, #piw-autohunt-window .piw-stat.piw-captures { color: #4ade80; }
 
-.piw-panel .piw-progress { height: 8px; background: rgba(255,255,255,.06); border-radius: 5px; overflow: hidden; margin: 3px 0; border: 1px solid rgba(255,255,255,.08); }
-.piw-panel .piw-progress-bar { height: 100%; transition: width .3s; border-radius: 5px; }
+.piw-panel .piw-progress, #piw-autohunt-window .piw-progress { height: 8px; background: rgba(255,255,255,.06); border-radius: 5px; overflow: hidden; margin: 3px 0; border: 1px solid rgba(255,255,255,.08); }
+.piw-panel .piw-progress-bar, #piw-autohunt-window .piw-progress-bar { height: 100%; transition: width .3s; border-radius: 5px; }
 .piw-bar-kills { background: linear-gradient(90deg,#f0c040,#d4a017); }
 .piw-bar-caps { background: linear-gradient(90deg,#4ade80,#22c55e); }
 
-.piw-panel .piw-dual-progress { display: flex; gap: 8px; margin: 4px 0; }
-.piw-panel .piw-dual-progress-item { flex: 1; }
-.piw-panel .piw-dual-progress-label { font-size: 10px; color: #9aa3bf; text-align: center; margin-bottom: 2px; font-weight: 500; }
-.piw-panel .piw-dual-progress .piw-progress { height: 8px; }
+.piw-panel .piw-dual-progress, #piw-autohunt-window .piw-dual-progress { display: flex; gap: 8px; margin: 4px 0; }
+.piw-panel .piw-dual-progress-item, #piw-autohunt-window .piw-dual-progress-item { flex: 1; }
+.piw-panel .piw-dual-progress-label, #piw-autohunt-window .piw-dual-progress-label { font-size: 10px; color: #9aa3bf; text-align: center; margin-bottom: 2px; font-weight: 500; }
+.piw-panel .piw-dual-progress .piw-progress, #piw-autohunt-window .piw-dual-progress .piw-progress { height: 8px; }
 
-.piw-panel .piw-route { font-size: 11px; color: #9aa3bf; text-align: center; }
-.piw-panel .piw-leader { font-size: 11px; color: #c084fc; text-align: center; padding: 2px 0; }
-.piw-panel .piw-shiny { font-size: 11px; color: #f0c040; text-align: center; padding: 2px 0; }
+.piw-panel .piw-route, #piw-autohunt-window .piw-route { font-size: 11px; color: #9aa3bf; text-align: center; }
+.piw-panel .piw-leader, #piw-autohunt-window .piw-leader { font-size: 11px; color: #c084fc; text-align: center; padding: 2px 0; }
+.piw-panel .piw-shiny, #piw-autohunt-window .piw-shiny { font-size: 11px; color: #f0c040; text-align: center; padding: 2px 0; }
 
-.piw-panel .piw-label { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; color: #c8cddc; }
-.piw-panel .piw-label input[type=number] {
+.piw-panel .piw-label, #piw-autohunt-window .piw-label { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; color: #c8cddc; }
+.piw-panel .piw-label input[type=number], #piw-autohunt-window .piw-label input[type=number] {
     background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
     color: #e0e4ef; padding: 5px 10px; font-size: 12px; width: 80px;
 }
-.piw-panel .piw-label input[type=number]:focus { outline: none; border-color: #60a5fa; }
+.piw-panel .piw-label input[type=number]:focus, #piw-autohunt-window .piw-label input[type=number]:focus { outline: none; border-color: #60a5fa; }
 .piw-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; position: relative; }
 .piw-check input[type=checkbox] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.2); border-radius: 5px; background: rgba(255,255,255,.06); cursor: pointer; transition: all .15s; flex-shrink: 0; position: relative; }
 .piw-check input[type=checkbox]:checked { background: #5b7fff; border-color: #5b7fff; box-shadow: 0 0 8px rgba(91,127,255,.3); }
@@ -586,18 +709,27 @@
 .piw-check input[type=checkbox]:hover { border-color: #5b7fff; }
 .piw-modal-toolbar .piw-check { font-size: 12px; color: #9aa3bf; }
 
-.piw-panel .piw-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+.piw-panel .piw-row, #piw-autohunt-window .piw-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
 
-.piw-panel .piw-selected-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; min-height: 20px; }
-.piw-panel .piw-tag {
+.piw-panel .piw-selected-tags, #piw-autohunt-window .piw-selected-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; min-height: 20px; }
+.piw-panel .piw-tag, #piw-autohunt-window .piw-tag {
     background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3); border-radius: 8px;
-    padding: 3px 10px; font-size: 10px; color: #4ade80; font-weight: 500;
-    display: flex; align-items: center; gap: 5px;
+    padding: 3px 6px 3px 10px; font-size: 10.5px; color: #4ade80; font-weight: 600;
+    display: flex; align-items: center; gap: 4px;
+    cursor: grab;
 }
-.piw-panel .piw-tag-remove { cursor: pointer; color: #f87171; font-weight: bold; font-size: 12px; }
-.piw-panel .piw-tag-remove:hover { color: #ff4444; }
+.piw-panel .piw-tag:active, #piw-autohunt-window .piw-tag:active { cursor: grabbing; }
+.piw-panel .piw-tag-remove, #piw-autohunt-window .piw-tag-remove {
+    cursor: pointer; color: #f87171; font-weight: 800; font-size: 15px; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 4px; border-radius: 4px;
+    transition: all .15s; user-select: none;
+}
+.piw-panel .piw-tag-remove:hover, #piw-autohunt-window .piw-tag-remove:hover {
+    color: #ff4444; transform: scale(1.25);
+}
 
-.piw-panel .piw-hint { font-size: 12px; color: #9aa3bf; text-align: center; margin-top: 4px; }
+.piw-panel .piw-hint, #piw-autohunt-window .piw-hint { font-size: 12px; color: #9aa3bf; text-align: center; margin-top: 4px; }
 
 .piw-badge {
     display: inline-flex; align-items: center; gap: 4px;
@@ -607,73 +739,41 @@
 .piw-badge-running { background: rgba(74,222,128,.12); color: #4ade80; border: 1px solid rgba(74,222,128,.2); }
 .piw-badge-paused { background: rgba(248,113,113,.12); color: #f87171; border: 1px solid rgba(248,113,113,.2); }
 
-.piw-panel .piw-city { font-size: 11px; color: #f0c040; text-align: center; padding: 2px 0; }
+.piw-panel .piw-city, #piw-autohunt-window .piw-city { font-size: 11px; color: #f0c040; text-align: center; padding: 2px 0; }
 .piw-panel .piw-close { cursor: pointer; color: #a5b4fc; font-size: 16px; line-height: 1; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; transition: all .15s; }
 .piw-panel .piw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-panel .piw-search {
-    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
-    color: #e0e4ef; padding: 6px 10px; font-size: 12px; width: 100%;
-    box-sizing: border-box; margin-bottom: 4px;
-}
-.piw-panel .piw-search::placeholder { color: #848cb5; }
-.piw-panel .piw-pokemon-list {
-    max-height: 120px; overflow-y: auto; border: 1px solid rgba(255,255,255,.1);
-    border-radius: 8px; margin-bottom: 6px; background: rgba(0,0,0,.2);
-    scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05);
-}
-.piw-panel .piw-pokemon-list::-webkit-scrollbar { width: 5px; }
-.piw-panel .piw-pokemon-list::-webkit-scrollbar-track { background: rgba(255,255,255,.03); }
-.piw-panel .piw-pokemon-list::-webkit-scrollbar-thumb { background: rgba(132,144,255,.35); border-radius: 99px; }
-
-.piw-pokemon-item {
-    padding: 4px 8px; cursor: pointer; font-size: 12px;
-    display: flex; align-items: center; gap: 6px;
-}
-.piw-pokemon-item:hover { background: rgba(255,255,255,.07); }
-.piw-pokemon-item.selected { background: rgba(74,222,128,.15); color: #4ade80; }
-.piw-pokemon-item .piw-check { width: 14px; text-align: center; }
-.piw-hunt-now { margin-left: auto; background: none; border: 1px solid rgba(255,255,255,.2); color: #9aa3bf; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; transition: all .15s; opacity: 0; flex-shrink: 0; }
-.piw-pokemon-item:hover .piw-hunt-now { opacity: 1; }
-.piw-hunt-now:hover { background: #5b7fff; border-color: #5b7fff; color: #fff; }
-.piw-panel .piw-filter-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; }
-.piw-panel .piw-filter-row input[type=checkbox] { width: auto; accent-color: #c084fc; }
-.piw-panel .piw-pagination { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; }
-.piw-panel .piw-pagination .piw-btn { padding: 2px 8px; font-size: 10px; }
-.piw-panel .piw-pagination .piw-page-info { color: #7d86ad; }
-.piw-pokemon-item .piw-shiny-icon { color: #f0c040; margin-left: 4px; }
-.piw-panel .piw-btns-row { display: flex; gap: 6px; margin-bottom: 4px; }
-.piw-panel .piw-btns-row .piw-btn { flex: 1; font-size: 10px; padding: 3px 6px; }
 
 #piw-reopen {
     visibility: hidden; position: fixed; top: 10px; right: 10px; z-index: 2147483647;
     width: 36px; height: 36px; border-radius: 10px;
     background: linear-gradient(165deg, #161a29, #0d0f18);
     border: 1px solid rgba(132,144,255,.35);
-    color: #a5b4fc; font-size: 16px; cursor: move;
+    color: #a5b4fc; font-size: 16px; cursor: grab;
     box-shadow: 0 4px 16px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
     display: none; align-items: center; justify-content: center;
     transition: background .15s, border-color .15s, box-shadow .15s, transform .15s; user-select: none;
 }
+#piw-reopen:active { cursor: grabbing; }
 #piw-reopen.piw-dock-mode {
     position: relative !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
-    width: auto !important; height: auto !important; border-radius: 0 !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    margin: 0 3px !important; flex-shrink: 0;
-    display: inline-flex !important; align-items: center; justify-content: center;
-    align-self: center !important; vertical-align: middle !important; line-height: 1 !important;
+    display: inline-flex !important; align-items: center !important; justify-content: center !important;
     cursor: pointer !important; z-index: 1000; padding: 0 !important;
+    box-sizing: border-box !important; flex-shrink: 0;
+    border-radius: 6px !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transition: all .1s ease !important;
 }
 #piw-reopen.piw-dock-mode svg {
-    width: 18px !important; height: 18px !important; display: block !important; margin: auto !important;
+    width: 22px !important; height: 22px !important; display: block !important; margin: auto !important;
+    pointer-events: none !important;
 }
 #piw-reopen.piw-dock-mode:hover {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    transform: scale(1.15);
-    filter: drop-shadow(0 0 6px rgba(132,144,255,.8));
+    border-color: #8f7d54 !important;
+    background: rgba(143, 125, 84, 0.22) !important;
+    box-shadow: inset 0 0 4px rgba(143, 125, 84, 0.25) !important;
+    transform: none !important;
 }
 #piw-reopen:hover {
     background: linear-gradient(165deg, #22283d, #141826);
@@ -690,7 +790,7 @@
 .piw-modal { pointer-events: auto; }
 .piw-modal {
     background: linear-gradient(165deg, rgba(20,24,38,.98), rgba(12,14,24,.98));
-    border: 1px solid rgba(132,144,255,.3); border-radius: 16px;
+    border: 1px solid rgba(239,68,68,.35); border-radius: 16px;
     width: 800px; height: 600px;
     display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 16px 50px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.08);
@@ -702,27 +802,27 @@
 .piw-modal-resize {
     position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
     cursor: nwse-resize; z-index: 30; opacity: .6;
-    background: repeating-linear-gradient(135deg, transparent 0 3px, rgba(147,160,232,.85) 3px 4.5px);
+    background: repeating-linear-gradient(135deg, transparent 0 3px, rgba(248,113,113,.85) 3px 4.5px);
     clip-path: polygon(100% 0, 100% 100%, 0 100%);
     transition: opacity .15s, transform .15s;
 }
 .piw-modal-resize:hover { opacity: 1; transform: scale(1.1); }
 .piw-modal-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 18px; border-bottom: 1px solid rgba(132,144,255,.22);
-    background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
+    padding: 12px 18px; border-bottom: 1px solid rgba(239,68,68,.25);
+    background: linear-gradient(135deg, rgba(239,68,68,.38), rgba(220,38,38,.22));
     cursor: grab; user-select: none;
 }
 .piw-modal-header:active { cursor: grabbing; }
 .piw-modal-header h3 { margin: 0; font-size: 15px; color: #fff; font-weight: 700; letter-spacing: .4px; user-select: none; flex: 1; }
 .piw-modal-header .piw-modal-close {
-    cursor: pointer; color: #a5b4fc; font-size: 18px; background: none;
+    cursor: pointer; color: #fca5a5; font-size: 18px; background: none;
     border: none; padding: 3px 8px; line-height: 1; border-radius: 6px;
     transition: all .15s;
 }
 .piw-modal-header .piw-modal-close:hover { color: #fff; background: rgba(255,255,255,.15); }
 .piw-modal-toolbar {
-    display: flex; gap: 10px; padding: 10px 18px; border-bottom: 1px solid rgba(132,144,255,.15);
+    display: flex; gap: 10px; padding: 10px 18px; border-bottom: 1px solid rgba(239,68,68,.18);
     align-items: center; flex-wrap: wrap; background: rgba(255,255,255,.02);
 }
 .piw-modal-toolbar input[type=text] {
@@ -730,32 +830,28 @@
     border-radius: 10px; color: #e0e4ef; padding: 7px 12px; font-size: 12.5px;
     transition: border-color .15s;
 }
-.piw-modal-toolbar input[type=text]:focus { outline: none; border-color: #60a5fa; box-shadow: 0 0 8px rgba(96,165,250,.25); }
+.piw-modal-toolbar input[type=text]:focus { outline: none; border-color: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.25); }
 .piw-modal-toolbar input[type=text]::placeholder { color: #7d86ad; }
 .piw-modal-toolbar select {
-    background: rgba(20,24,38,.9); border: 1px solid rgba(132,144,255,.25); border-radius: 10px;
+    background: rgba(20,24,38,.9); border: 1px solid rgba(239,68,68,.25); border-radius: 10px;
     color: #e0e4ef; padding: 7px 12px; font-size: 12px; cursor: pointer;
     transition: border-color .15s;
 }
-.piw-modal-toolbar select:focus { outline: none; border-color: #60a5fa; }
+.piw-modal-toolbar select:focus { outline: none; border-color: #ef4444; }
 .piw-modal-toolbar label:not(.piw-check) {
     display: flex; align-items: center; gap: 5px; font-size: 12px; color: #9aa3bf; cursor: pointer;
     padding: 5px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05);
     transition: all .15s;
 }
-.piw-modal-toolbar label:not(.piw-check):hover { border-color: #5b7fff; color: #e0e4ef; }
-.piw-modal-toolbar label:not(.piw-check) input { accent-color: #5b7fff; }
+.piw-modal-toolbar label:not(.piw-check):hover { border-color: #ef4444; color: #e0e4ef; }
+.piw-modal-toolbar label:not(.piw-check) input { accent-color: #ef4444; }
+.piw-modal-toolbar .piw-check input[type=checkbox]:checked { background: #ef4444; border-color: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.3); }
 .piw-modal-toolbar .piw-modal-count {
     font-size: 11px; color: #9aa3bf; white-space: nowrap;
 }
 .piw-modal-body {
     flex: 1; overflow-y: auto; padding: 16px 20px; margin-bottom: 12px;
-    scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05);
 }
-.piw-modal-body::-webkit-scrollbar { width: 6px; }
-.piw-modal-body::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 99px; }
-.piw-modal-body::-webkit-scrollbar-thumb { background: rgba(132,144,255,.38); border-radius: 99px; }
-.piw-modal-body::-webkit-scrollbar-thumb:hover { background: rgba(132,144,255,.65); }
 .piw-pokedex-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
     gap: 10px;
@@ -765,7 +861,7 @@
     padding: 10px 6px; cursor: pointer; text-align: center; transition: all .2s;
     position: relative;
 }
-.piw-poke-card:hover { border-color: rgba(132,144,255,.4); background: rgba(255,255,255,.08); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.4); }
+.piw-poke-card:hover { border-color: rgba(239,68,68,.45); background: rgba(255,255,255,.08); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.4); }
 .piw-poke-card.selected { border-color: #4ade80; background: rgba(74,222,128,.15); box-shadow: 0 0 14px rgba(74,222,128,.2); }
 .piw-poke-card .piw-poke-img {
     width: 56px; height: 56px; image-rendering: pixelated;
@@ -799,12 +895,12 @@
 .piw-poke-card .piw-poke-shiny {
     position: absolute; top: 6px; left: 6px; font-size: 12px; z-index: 1;
 }
-.piw-hunt-card-btn { display: none; position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg,#5b7fff,#4a6adf); border: none; color: #fff; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; z-index: 2; box-shadow: 0 2px 8px rgba(91,127,255,.3); }
+.piw-hunt-card-btn { display: none; position: absolute; top: 6px; left: 6px; background: linear-gradient(135deg,#ef4444,#dc2626); border: none; color: #fff; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; z-index: 2; box-shadow: 0 2px 8px rgba(239,68,68,.3); }
 .piw-poke-card:hover .piw-hunt-card-btn { display: block; }
-.piw-hunt-card-btn:hover { background: linear-gradient(135deg,#6b8fff,#5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.5); }
+.piw-hunt-card-btn:hover { background: linear-gradient(135deg,#f87171,#ef4444); box-shadow: 0 4px 16px rgba(239,68,68,.45); }
 .piw-modal-footer {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 12px 20px; border-top: 1px solid rgba(132,144,255,.15);
+    padding: 12px 20px; border-top: 1px solid rgba(239,68,68,.18);
     background: rgba(255,255,255,.02);
 }
 .piw-modal-footer .piw-btns-row { display: flex; gap: 8px; }
@@ -813,13 +909,13 @@
     border-radius: 8px; padding: 7px 16px; cursor: pointer; font-size: 12px;
     transition: all .15s;
 }
-.piw-modal-footer .piw-btn:hover { background: rgba(132,144,255,.25); border-color: rgba(132,144,255,.4); }
+.piw-modal-footer .piw-btn:hover { background: rgba(239,68,68,.2); border-color: rgba(239,68,68,.4); }
 .piw-modal-footer .piw-selected-info { font-size: 13px; color: #9aa3bf; }
 .piw-modal-footer .piw-btn-apply {
-    background: linear-gradient(135deg, #5b7fff, #4a6adf); border: none;
-    color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(91,127,255,.3);
+    background: linear-gradient(135deg, #ef4444, #dc2626); border: none;
+    color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(239,68,68,.3);
 }
-.piw-modal-footer .piw-btn-apply:hover { background: linear-gradient(135deg, #6b8fff, #5a7aef); box-shadow: 0 4px 16px rgba(91,127,255,.4); }
+.piw-modal-footer .piw-btn-apply:hover { background: linear-gradient(135deg, #f87171, #ef4444); box-shadow: 0 4px 16px rgba(239,68,68,.4); }
 .piw-type-badge {
     display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px;
     color: #fff; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
@@ -840,14 +936,14 @@
 #piw-info-window * { box-sizing: border-box; }
 .piw-iw-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(132,144,255,.22);
-    background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(139,92,246,.25);
+    background: linear-gradient(135deg, rgba(139,92,246,.38), rgba(124,58,237,.22));
     font-weight: 700; font-size: 13px; letter-spacing: .4px;
 }
 .piw-iw-head:active { cursor: grabbing; }
 .piw-iw-title { display: flex; align-items: center; gap: 8px; }
 .piw-iw-dot { width: 8px; height: 8px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 10px #a78bfa; }
-.piw-iw-close { cursor: pointer; color: #a5b4fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.piw-iw-close { cursor: pointer; color: #c4b5fd; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-iw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
 .piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; }
 .piw-iw-party-bar { display: flex; gap: 6px; padding: 6px 8px; margin-bottom: 8px; background: rgba(10,12,20,.75); border: 1px solid rgba(132,144,255,.2); border-radius: 10px; overflow-x: auto; align-items: center; justify-content: center; }
@@ -911,54 +1007,198 @@
 #piw-moves-window * { box-sizing: border-box; }
 .piw-mw-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(132,144,255,.22);
-    background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(6,182,212,.25);
+    background: linear-gradient(135deg, rgba(6,182,212,.38), rgba(8,145,178,.22));
     font-weight: 700; font-size: 13px; letter-spacing: .4px;
 }
 .piw-mw-head:active { cursor: grabbing; }
 .piw-mw-title { display: flex; align-items: center; gap: 8px; }
-.piw-mw-dot { width: 8px; height: 8px; border-radius: 50%; background: #60a5fa; box-shadow: 0 0 10px #60a5fa; }
-.piw-mw-close { cursor: pointer; color: #a5b4fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.piw-mw-dot { width: 8px; height: 8px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
+.piw-mw-close { cursor: pointer; color: #a5f3fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-mw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
 .piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
 .piw-mw-body { padding: 10px 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
 
-/* Scrollbars com gradiente roxo/índigo no padrão do script */
-.piw-panel *, .piw-panel-inner, #piw-info-window *, #piw-moves-window *, #piw-pokedex-overlay *, .piw-modal * {
+#piw-tracker-window {
+    position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
+    display: none; flex-direction: column;
+    color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
+    font-size: 12px;
+    background: linear-gradient(165deg, rgba(20,24,38,.97), rgba(12,14,24,.97));
+    border: 1px solid rgba(132,144,255,.3); border-radius: 14px;
+    box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter: blur(10px); user-select: none;
+    overflow: hidden;
+}
+#piw-tracker-window * { box-sizing: border-box; }
+.piw-tw-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(132,144,255,.22);
+    background: linear-gradient(135deg, rgba(16,185,129,.38), rgba(5,150,105,.22));
+    font-weight: 700; font-size: 13px; letter-spacing: .4px;
+}
+.piw-tw-head:active { cursor: grabbing; }
+.piw-tw-title { display: flex; align-items: center; gap: 8px; }
+.piw-tw-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 10px #34d399; }
+.piw-tw-close { cursor: pointer; color: #a7f3d0; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.piw-tw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
+.piw-tw-tabs { display: flex; background: rgba(0,0,0,.25); border-bottom: 1px solid rgba(132,144,255,.15); padding: 4px 8px; gap: 6px; }
+.piw-tw-tab { flex: 1; text-align: center; padding: 6px 8px; border-radius: 8px; font-weight: 700; font-size: 11px; cursor: pointer; color: #9aa3bf; background: transparent; border: 1px solid transparent; transition: all .15s; }
+.piw-tw-tab:hover { color: #fff; background: rgba(255,255,255,.05); }
+.piw-tw-tab.active { color: #34d399; background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.35); box-shadow: 0 0 10px rgba(16,185,129,.2); }
+.piw-tw-body { padding: 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
+.piw-tw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.piw-tw-stat { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 8px 10px; }
+.piw-tw-stat-title { font-size: 10.5px; font-weight: 700; color: #9aa3bf; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 4px; }
+.piw-tw-stat-val { font-size: 15px; font-weight: 700; color: #fff; margin-top: 2px; }
+.piw-tw-stat-sub { font-size: 10px; color: #7d86ad; margin-top: 2px; }
+.piw-tw-history-item { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px; margin-bottom: 8px; position: relative; }
+.piw-tw-history-item:hover { border-color: rgba(132,144,255,.3); background: rgba(255,255,255,.06); }
+.piw-tw-history-item.best-exp { border-color: rgba(52,211,153,.5); box-shadow: 0 0 10px rgba(52,211,153,.15); }
+.piw-tw-badge-best { background: linear-gradient(135deg,#10b981,#059669); color: #fff; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; display: inline-block; margin-left: 6px; }
+.piw-tw-sort-btn { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); color: #9aa3bf; font-size: 10px; font-weight: 600; padding: 3px 7px; border-radius: 6px; cursor: pointer; transition: all .15s; }
+.piw-tw-sort-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+.piw-tw-sort-btn.active { background: rgba(16, 185, 129, 0.25); border-color: rgba(52, 211, 153, 0.5); color: #34d399; }
+
+#piw-autohunt-window {
+    position: fixed; z-index: 2147483000; width: 340px; min-width: 320px; min-height: 200px;
+    display: none; flex-direction: column;
+    color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
+    font-size: 12px;
+    background: linear-gradient(165deg, rgba(20,24,38,.97), rgba(12,14,24,.97));
+    border: 1px solid rgba(132,144,255,.3); border-radius: 14px;
+    box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter: blur(10px); user-select: none;
+    overflow: hidden;
+}
+#piw-autohunt-window * { box-sizing: border-box; }
+.piw-ah-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(132,144,255,.22);
+    background: linear-gradient(135deg, rgba(239,68,68,.38), rgba(220,38,38,.22));
+    font-weight: 700; font-size: 13px; letter-spacing: .4px;
+}
+.piw-ah-head:active { cursor: grabbing; }
+.piw-ah-title { display: flex; align-items: center; gap: 8px; }
+.piw-ah-dot { width: 8px; height: 8px; border-radius: 50%; background: #f87171; box-shadow: 0 0 10px #f87171; }
+.piw-ah-close { cursor: pointer; color: #fca5a5; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.piw-ah-close:hover { color: #fff; background: rgba(255,255,255,.15); }
+.piw-ah-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
+
+.piw-hub-btn {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 10px;
+    padding: 10px 6px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.piw-hub-btn:hover {
+    background: rgba(255,255,255,.08);
+    border-color: rgba(132,144,255,.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0,0,0,.3);
+}
+
+/* Scrollbars customizadas padronizadas */
+.piw-panel *, .piw-panel-inner,
+#piw-autohunt-window *, .piw-ah-body,
+#piw-tracker-window *, .piw-tw-body,
+#piw-info-window *, .piw-iw-body,
+#piw-moves-window *, .piw-mw-body,
+#piw-pokedex-overlay *, .piw-modal * {
     scrollbar-width: thin !important;
-    scrollbar-color: rgba(132, 144, 255, 0.5) rgba(20, 24, 38, 0.4) !important;
 }
 .piw-panel *::-webkit-scrollbar, .piw-panel-inner::-webkit-scrollbar,
-#piw-info-window *::-webkit-scrollbar,
-#piw-moves-window *::-webkit-scrollbar,
-#piw-pokedex-overlay *::-webkit-scrollbar,
-.piw-modal *::-webkit-scrollbar {
+#piw-autohunt-window *::-webkit-scrollbar, .piw-ah-body::-webkit-scrollbar,
+#piw-tracker-window *::-webkit-scrollbar, .piw-tw-body::-webkit-scrollbar,
+#piw-info-window *::-webkit-scrollbar, .piw-iw-body::-webkit-scrollbar,
+#piw-moves-window *::-webkit-scrollbar, .piw-mw-body::-webkit-scrollbar,
+#piw-pokedex-overlay *::-webkit-scrollbar, .piw-modal *::-webkit-scrollbar {
     width: 6px !important;
     height: 6px !important;
 }
 .piw-panel *::-webkit-scrollbar-track, .piw-panel-inner::-webkit-scrollbar-track,
-#piw-info-window *::-webkit-scrollbar-track,
-#piw-moves-window *::-webkit-scrollbar-track,
-#piw-pokedex-overlay *::-webkit-scrollbar-track,
-.piw-modal *::-webkit-scrollbar-track {
+#piw-autohunt-window *::-webkit-scrollbar-track, .piw-ah-body::-webkit-scrollbar-track,
+#piw-tracker-window *::-webkit-scrollbar-track, .piw-tw-body::-webkit-scrollbar-track,
+#piw-info-window *::-webkit-scrollbar-track, .piw-iw-body::-webkit-scrollbar-track,
+#piw-moves-window *::-webkit-scrollbar-track, .piw-mw-body::-webkit-scrollbar-track,
+#piw-pokedex-overlay *::-webkit-scrollbar-track, .piw-modal *::-webkit-scrollbar-track {
     background: rgba(20, 24, 38, 0.5) !important;
     border-radius: 99px !important;
 }
-.piw-panel *::-webkit-scrollbar-thumb, .piw-panel-inner::-webkit-scrollbar-thumb,
-#piw-info-window *::-webkit-scrollbar-thumb,
-#piw-moves-window *::-webkit-scrollbar-thumb,
-#piw-pokedex-overlay *::-webkit-scrollbar-thumb,
-.piw-modal *::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #6366f1, #8b5cf6) !important;
+
+/* 1. Hub Principal (Índigo) */
+.piw-panel *, .piw-panel-inner {
+    scrollbar-color: rgba(99, 102, 241, 0.5) rgba(20, 24, 38, 0.4) !important;
+}
+.piw-panel *::-webkit-scrollbar-thumb, .piw-panel-inner::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #6366f1, #4f46e5) !important;
     border-radius: 99px !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
-.piw-panel *::-webkit-scrollbar-thumb:hover, .piw-panel-inner::-webkit-scrollbar-thumb:hover,
-#piw-info-window *::-webkit-scrollbar-thumb:hover,
-#piw-moves-window *::-webkit-scrollbar-thumb:hover,
-#piw-pokedex-overlay *::-webkit-scrollbar-thumb:hover,
-.piw-modal *::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, #818cf8, #a78bfa) !important;
+.piw-panel *::-webkit-scrollbar-thumb:hover, .piw-panel-inner::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #818cf8, #6366f1) !important;
+}
+
+/* 2. Auto Hunt & Seleção de Pokémon / Pokédex (Vermelho) */
+#piw-autohunt-window, #piw-autohunt-window *, .piw-ah-body,
+#piw-pokedex-overlay, #piw-pokedex-overlay *, .piw-modal, .piw-modal *, .piw-modal-body, .piw-modal-body * {
+    scrollbar-color: rgba(239, 68, 68, 0.5) rgba(20, 24, 38, 0.4) !important;
+}
+#piw-autohunt-window *::-webkit-scrollbar-thumb, .piw-ah-body::-webkit-scrollbar-thumb,
+#piw-pokedex-overlay *::-webkit-scrollbar-thumb, .piw-modal *::-webkit-scrollbar-thumb, .piw-modal-body::-webkit-scrollbar-thumb, .piw-modal-body *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #ef4444, #dc2626) !important;
+    border-radius: 99px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+#piw-autohunt-window *::-webkit-scrollbar-thumb:hover, .piw-ah-body::-webkit-scrollbar-thumb:hover,
+#piw-pokedex-overlay *::-webkit-scrollbar-thumb:hover, .piw-modal *::-webkit-scrollbar-thumb:hover, .piw-modal-body::-webkit-scrollbar-thumb:hover, .piw-modal-body *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #f87171, #ef4444) !important;
+}
+
+/* 3. Hunt Analyzer (Esmeralda) */
+#piw-tracker-window, #piw-tracker-window *, .piw-tw-body {
+    scrollbar-color: rgba(16, 185, 129, 0.5) rgba(15, 23, 42, 0.5) !important;
+}
+#piw-tracker-window *::-webkit-scrollbar-thumb, .piw-tw-body::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #10b981, #059669) !important;
+    border-radius: 99px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+#piw-tracker-window *::-webkit-scrollbar-thumb:hover, .piw-tw-body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #34d399, #10b981) !important;
+}
+
+/* 4. IVs & Stats (Violeta / Roxo) */
+#piw-info-window, #piw-info-window *, .piw-iw-body {
+    scrollbar-color: rgba(139, 92, 246, 0.5) rgba(20, 24, 38, 0.4) !important;
+}
+#piw-info-window *::-webkit-scrollbar-thumb, .piw-iw-body::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #8b5cf6, #7c3aed) !important;
+    border-radius: 99px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+#piw-info-window *::-webkit-scrollbar-thumb:hover, .piw-iw-body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #a78bfa, #8b5cf6) !important;
+}
+
+/* 5. Moves (Ciano) */
+#piw-moves-window, #piw-moves-window *, .piw-mw-body {
+    scrollbar-color: rgba(6, 182, 212, 0.5) rgba(20, 24, 38, 0.4) !important;
+}
+#piw-moves-window *::-webkit-scrollbar-thumb, .piw-mw-body::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #06b6d4, #0891b2) !important;
+    border-radius: 99px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+#piw-moves-window *::-webkit-scrollbar-thumb:hover, .piw-mw-body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #22d3ee, #06b6d4) !important;
 }
 
 .piw-win-resize {
@@ -1003,7 +1243,7 @@
 
         const onStart = (e) => {
             const isReopenBtn = win.id === 'piw-reopen' || handle.id === 'piw-reopen';
-            if (!isReopenBtn && e.target.closest('.piw-close, .piw-iw-close, .piw-mw-close, .piw-modal-close, input, button, select, label')) return;
+            if (!isReopenBtn && e.target.closest('.piw-close, .piw-ah-close, .piw-tw-close, .piw-iw-close, .piw-mw-close, .piw-modal-close, [class*="close"], [id*="close"], [title*="Fechar"], input, button, select, label, .piw-tag-remove')) return;
             isDragging = true;
             hasMoved = false;
             const rect = win.getBoundingClientRect();
@@ -1092,22 +1332,22 @@
         document.addEventListener('mouseup', onEnd);
     }
 
+    let autohuntWindowVisible = GM_getValue('piw_autohunt_win_visible', false);
+
     function applyOpacityAll(pct) {
         const val = (pct != null ? pct : GM_getValue('piw_opacity', 100)) / 100;
         const panelEl = document.querySelector('.piw-panel');
         const infoWin = document.getElementById('piw-info-window');
         const movesWin = document.getElementById('piw-moves-window');
+        const trackerWin = document.getElementById('piw-tracker-window');
+        const autohuntWin = document.getElementById('piw-autohunt-window');
         const modalEl = document.querySelector('.piw-modal');
         if (panelEl) panelEl.style.opacity = String(val);
         if (infoWin) infoWin.style.opacity = String(val);
         if (movesWin) movesWin.style.opacity = String(val);
+        if (trackerWin) trackerWin.style.opacity = String(val);
+        if (autohuntWin) autohuntWin.style.opacity = String(val);
         if (modalEl) modalEl.style.opacity = String(val);
-    }
-
-    function isWindowOnTop(win) {
-        if (!win) return false;
-        const currentZ = parseInt(win.style.zIndex || '0', 10);
-        return currentZ >= highestZIndex;
     }
 
     let panel;
@@ -1118,83 +1358,238 @@
         return CITY_SLUGS.has(currentSlug);
     }
 
+    function createAutoHuntWindowDOM() {
+        if (document.getElementById('piw-autohunt-window')) return;
+
+        const win = document.createElement('div');
+        win.id = 'piw-autohunt-window';
+
+        const storedPos = GM_getValue('piw_autohunt_win_pos', { left: 400, top: 200 });
+        const storedSize = GM_getValue('piw_autohunt_win_size', null);
+        const ahL = parseFloat(storedPos.left);
+        const ahT = parseFloat(storedPos.top);
+        win.style.left = `${!isNaN(ahL) ? ahL : 400}px`;
+        win.style.top = `${!isNaN(ahT) ? ahT : 200}px`;
+        if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
+        if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
+        win.style.display = autohuntWindowVisible ? 'flex' : 'none';
+
+        win.innerHTML = `
+            <div class="piw-ah-head">
+                <span class="piw-ah-title"><span class="piw-ah-dot" id="piw-ah-dot"></span>🎯 Auto Hunt</span>
+                <span class="piw-ah-close" id="piw-ah-close-btn" title="Fechar">✕</span>
+            </div>
+            <div class="piw-ah-body">
+                <div style="display:flex;gap:5px;justify-content:center;margin:2px 0 6px;flex-wrap:wrap">
+                    <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
+                    <button class="piw-btn" id="piw-skip" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:7px 11px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(245,158,11,.3)" title="Pular para o próximo pokémon da lista">⏭️ Pular</button>
+                    <button class="piw-btn" id="piw-stop" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(239,68,68,.3)" title="Parar e voltar pra cidade">■ Stop</button>
+                    <button class="piw-btn" id="piw-reset" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:7px 10px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(99,102,241,.3)" title="Resetar contadores">↻ Reset</button>
+                </div>
+                <div style="text-align:center;margin-bottom:6px"><div id="piw-status"></div></div>
+                <div class="piw-card">
+                    <div class="piw-city" id="piw-city-full" style="display:none">Cidade - auto-switch pausado</div>
+                    <div class="piw-leader" id="piw-leader">Líder: —</div>
+                    <div class="piw-shiny" id="piw-shiny">✨ Shiny: 0</div>
+                    <div class="piw-stat piw-kills" id="piw-kills">Abates: 0 / ${KILL_TARGET}</div>
+                    <div class="piw-stat piw-captures" id="piw-captures">Capturas: 0 / ${CAPTURE_TARGET}</div>
+                    <div class="piw-dual-progress">
+                        <div class="piw-dual-progress-item">
+                            <div class="piw-dual-progress-label">Abates</div>
+                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills" style="width:0%"></div></div>
+                        </div>
+                        <div class="piw-dual-progress-item">
+                            <div class="piw-dual-progress-label">Capturas</div>
+                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps" style="width:0%"></div></div>
+                        </div>
+                    </div>
+                    <div class="piw-route" id="piw-route" style="display:none">—</div>
+                    <div id="piw-hunting-display" style="text-align:center;margin-top:6px"></div>
+                </div>
+                <div class="piw-card">
+                    <div class="piw-card-label">Opções</div>
+                    <label class="piw-check">
+                        <input type="checkbox" id="piw-loop" ${loopMode?'checked':''}>
+                        Modo loop (não remover da lista)
+                    </label>
+                    <label class="piw-check">
+                        <input type="checkbox" id="piw-exit-kills" ${exitOnKills?'checked':''}>
+                        Sair ao atingir abates
+                    </label>
+                    <label class="piw-check">
+                        <input type="checkbox" id="piw-exit-captures" ${exitOnCaptures?'checked':''}>
+                        Sair ao atingir capturas
+                    </label>
+                    <div class="piw-row" style="margin-top:6px">
+                        <label class="piw-label" style="flex:1;margin:0">
+                            Abates <input type="number" id="piw-target" value="${KILL_TARGET}" min="1" max="99999" style="width:80px">
+                        </label>
+                        <label class="piw-label" style="flex:1;margin:0">
+                            Capturas <input type="number" id="piw-capture-target" value="${CAPTURE_TARGET}" min="1" max="99999" style="width:80px">
+                        </label>
+                    </div>
+                </div>
+                <div class="piw-card">
+                    <div class="piw-card-label">Pokémon da Lista de Caça</div>
+                    <button class="piw-btn piw-btn-primary" id="piw-open-pokedex-ah" style="width:100%;padding:7px 0;font-size:12px;font-weight:700;background:linear-gradient(135deg,#ef4444,#dc2626);border:none;border-radius:10px;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,.3)">Selecionar Pokémon</button>
+                    <div class="piw-selected-tags" id="piw-selected-tags"></div>
+                    <div class="piw-hint" id="piw-hint">Nenhum selecionado</div>
+                </div>
+            </div>
+            <div class="piw-win-resize" title="Arraste para redimensionar"></div>
+        `;
+
+        makeBringableToFront(win);
+        document.body.appendChild(win);
+        applyOpacityAll();
+
+        win.querySelector('#piw-ah-close-btn').addEventListener('click', closeAutoHuntWindow);
+
+        const head = win.querySelector('.piw-ah-head');
+        makeDraggable(win, head, 'piw_autohunt_win_pos');
+
+        const resizeHandle = win.querySelector('.piw-win-resize');
+        makeResizable(win, resizeHandle, 'piw_autohunt_win_size', 340, 200);
+
+        // Listeners do Auto Hunt
+        win.querySelector('#piw-play').addEventListener('click', () => {
+            if (!busy && selectedPokemon.length > 0) {
+                enabled = true;
+                GM_setValue('piw_enabled', true);
+                doSwitch();
+                syncUI();
+            }
+        });
+
+        win.querySelector('#piw-skip').addEventListener('click', skipToNextHunt);
+
+        win.querySelector('#piw-stop').addEventListener('click', () => {
+            enabled = false;
+            GM_setValue('piw_enabled', false);
+            huntingPokemon = '';
+            GM_setValue('piw_huntingPokemon', '');
+            resetObservedMoves();
+            syncUI();
+            const houseBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn[data-guide*="home"], button.dock-btn[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"]');
+            if (houseBtn) {
+                houseBtn.click();
+                GM_log('[AutoHunt] Stop: voltando pra cidade');
+            } else {
+                GM_log('[AutoHunt] Stop: botão da casa não encontrado');
+            }
+        });
+
+        win.querySelector('#piw-reset').onclick = () => { killCount = 0; captureCount = 0; sessionShinyCount = 0; resetObservedMoves(); syncUI(); };
+
+        win.querySelector('#piw-loop').onchange = function() {
+            loopMode = this.checked;
+            GM_setValue('piw_loopMode', loopMode);
+            syncUI();
+        };
+        win.querySelector('#piw-exit-kills').onchange = function() {
+            exitOnKills = this.checked;
+            GM_setValue('piw_exitOnKills', exitOnKills);
+            syncUI();
+        };
+        win.querySelector('#piw-exit-captures').onchange = function() {
+            exitOnCaptures = this.checked;
+            GM_setValue('piw_exitOnCaptures', exitOnCaptures);
+            syncUI();
+        };
+        win.querySelector('#piw-target').onchange = function() {
+            GM_setValue('piw_killTarget', parseInt(this.value) || 100);
+            syncUI();
+        };
+        win.querySelector('#piw-capture-target').onchange = function() {
+            GM_setValue('piw_captureTarget', parseInt(this.value) || 1);
+            syncUI();
+        };
+        win.querySelector('#piw-open-pokedex-ah')?.addEventListener('click', () => openPokedexModal());
+
+        renderSelectedTags();
+    }
+
+    function closeAutoHuntWindow() {
+        autohuntWindowVisible = false;
+        GM_setValue('piw_autohunt_win_visible', false);
+        const win = document.getElementById('piw-autohunt-window');
+        if (win) win.style.display = 'none';
+    }
+
+    function toggleAutoHuntWindow() {
+        let win = document.getElementById('piw-autohunt-window');
+        if (!win) {
+            createAutoHuntWindowDOM();
+            win = document.getElementById('piw-autohunt-window');
+        }
+        if (!win) return;
+
+        autohuntWindowVisible = !autohuntWindowVisible;
+        GM_setValue('piw_autohunt_win_visible', autohuntWindowVisible);
+        win.style.display = autohuntWindowVisible ? 'flex' : 'none';
+        if (autohuntWindowVisible) {
+            bringToFront(win);
+            renderSelectedTags();
+            syncUI();
+        }
+    }
+
     function buildPanel() {
         panel = document.createElement('div');
         panel.className = 'piw-panel';
         makeBringableToFront(panel);
         panel.innerHTML = `
-            <h3><span style="display:flex;align-items:center;gap:7px"><svg width="18" height="18" viewBox="0 0 100 100" style="display:inline-block;vertical-align:middle;pointer-events:none"><path d="M 50 10 A 40 40 0 0 1 90 50 L 68 50 A 18 18 0 0 0 32 50 L 10 50 A 40 40 0 0 1 50 10 Z" fill="#ff4d4d"/><path d="M 10 50 L 32 50 A 18 18 0 0 0 68 50 L 90 50 A 40 40 0 0 1 50 90 A 40 40 0 0 1 10 50 Z" fill="#ffffff"/><circle cx="50" cy="50" r="18" fill="#141826"/><circle cx="50" cy="50" r="10" fill="#ffffff"/><circle cx="50" cy="50" r="40" fill="none" stroke="#141826" stroke-width="6"/><line x1="10" y1="50" x2="32" y2="50" stroke="#141826" stroke-width="6"/><line x1="68" y1="50" x2="90" y2="50" stroke="#141826" stroke-width="6"/></svg>Poke Helper</span> <span style="display:flex;align-items:center;gap:6px"><span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span><span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span></span></h3>
+            <h3>
+                <span style="display:flex;align-items:center;gap:7px">
+                    <svg width="18" height="18" viewBox="0 0 100 100" style="display:inline-block;vertical-align:middle;pointer-events:none"><path d="M 50 10 A 40 40 0 0 1 90 50 L 68 50 A 18 18 0 0 0 32 50 L 10 50 A 40 40 0 0 1 50 10 Z" fill="#ff4d4d"/><path d="M 10 50 L 32 50 A 18 18 0 0 0 68 50 L 90 50 A 40 40 0 0 1 50 90 A 40 40 0 0 1 10 50 Z" fill="#ffffff"/><circle cx="50" cy="50" r="18" fill="#141826"/><circle cx="50" cy="50" r="10" fill="#ffffff"/><circle cx="50" cy="50" r="40" fill="none" stroke="#141826" stroke-width="6"/><line x1="10" y1="50" x2="32" y2="50" stroke="#141826" stroke-width="6"/><line x1="68" y1="50" x2="90" y2="50" stroke="#141826" stroke-width="6"/></svg>
+                    <span>Poke Helper</span>
+                    <span style="font-size:9.5px;font-weight:700;color:#fff;background:linear-gradient(135deg,#6366f1,#4f46e5);border:1px solid rgba(255,255,255,.22);border-radius:6px;padding:2px 6px;letter-spacing:.3px;box-shadow:0 2px 6px rgba(99,102,241,.35);line-height:1">v${SCRIPT_VERSION}</span>
+                </span>
+                <span style="display:flex;align-items:center;gap:6px">
+                    <span style="display:flex;align-items:center;gap:2px;font-size:11px;color:#9aa3bf">🔍 <input type="range" id="piw-opacity" min="40" max="100" value="${GM_getValue('piw_opacity',100)}" style="width:60px;accent-color:#5b7fff" title="${GM_getValue('piw_opacity',100)}%"></span>
+                    <span id="piw-close-panel" class="piw-close" title="Fechar painel">✕</span>
+                </span>
+            </h3>
             <div class="piw-panel-inner">
-                <div style="display:flex;gap:6px;justify-content:center;margin:2px 0 6px">
-                <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 16px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
-                <button class="piw-btn" id="piw-stop" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;padding:7px 16px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(239,68,68,.3)" title="Parar e voltar pra cidade">■ Stop</button>
-                <button class="piw-btn" id="piw-reset" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(99,102,241,.3)" title="Resetar contadores">↻ Reset</button>
-                </div>
-            <div style="text-align:center;margin-bottom:6px"><div id="piw-status"></div></div>
-            <div class="piw-card">
-                <div class="piw-city" id="piw-city-full" style="display:none">Cidade - auto-switch pausado</div>
-                <div class="piw-leader" id="piw-leader">Líder: —</div>
-                <div class="piw-shiny" id="piw-shiny">✨ Shiny: 0</div>
-                <div class="piw-stat piw-kills" id="piw-kills">Abates: 0 / ${KILL_TARGET}</div>
-                <div class="piw-stat piw-captures" id="piw-captures">Capturas: 0 / ${CAPTURE_TARGET}</div>
-                <div class="piw-dual-progress">
-                    <div class="piw-dual-progress-item">
-                        <div class="piw-dual-progress-label">Abates</div>
-                        <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills" style="width:0%"></div></div>
+                <div class="piw-card" style="margin-bottom:10px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div id="piw-hub-leader" style="font-size:12px;font-weight:700;color:#fff">👑 Líder: —</div>
+                        <div id="piw-hub-status"></div>
                     </div>
-                    <div class="piw-dual-progress-item">
-                        <div class="piw-dual-progress-label">Capturas</div>
-                        <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps" style="width:0%"></div></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7d86ad;margin-top:5px">
+                        <span>📍 Local: <b id="piw-hub-route" style="color:#a5b4fc">—</b></span>
+                        <span>🎯 Alvo: <b id="piw-hub-target" style="color:#34d399">—</b></span>
                     </div>
                 </div>
-                <div class="piw-route" id="piw-route" style="display:none">—</div>
-                <div id="piw-hunting-display" style="text-align:center;margin-top:6px"></div>
-            </div>
-            <div class="piw-card">
-                <div class="piw-card-label">Opções</div>
-                <label class="piw-check">
-                    <input type="checkbox" id="piw-shiny-only" ${shinyOnlyMode?'checked':''}>
-                    Só trocar após capturar shiny
-                </label>
-                <label class="piw-check">
-                    <input type="checkbox" id="piw-loop" ${loopMode?'checked':''}>
-                    Modo loop (não remover da lista)
-                </label>
-                <label class="piw-check">
-                    <input type="checkbox" id="piw-exit-kills" ${exitOnKills?'checked':''}>
-                    Sair ao atingir abates
-                </label>
-                <label class="piw-check">
-                    <input type="checkbox" id="piw-exit-captures" ${exitOnCaptures?'checked':''}>
-                    Sair ao atingir capturas
-                </label>
-                <div class="piw-row" style="margin-top:6px">
-                    <label class="piw-label" style="flex:1;margin:0">
-                        Abates <input type="number" id="piw-target" value="${KILL_TARGET}" min="1" max="99999" style="width:80px">
-                    </label>
-                    <label class="piw-label" style="flex:1;margin:0">
-                        Capturas <input type="number" id="piw-capture-target" value="${CAPTURE_TARGET}" min="1" max="99999" style="width:80px">
-                    </label>
+
+                <div class="piw-card-label" style="margin-bottom:6px">CENTRAL DE FERRAMENTAS</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <button class="piw-hub-btn" id="piw-open-autohunt" style="border-top:2px solid #ef4444">
+                        <div style="font-size:18px;margin-bottom:2px">🎯</div>
+                        <div style="font-weight:700;font-size:12px;color:#fff">Auto Hunt</div>
+                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px" id="piw-hub-ah-sub">Controle de Caça</div>
+                    </button>
+
+                    <button class="piw-hub-btn" id="piw-open-analyzer" style="border-top:2px solid #10b981">
+                        <div style="font-size:18px;margin-bottom:2px">⏱️</div>
+                        <div style="font-weight:700;font-size:12px;color:#fff">Hunt Analyzer</div>
+                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px">XP, Loot & Histórico</div>
+                    </button>
+
+                    <button class="piw-hub-btn" id="piw-open-ivs" style="border-top:2px solid #8b5cf6">
+                        <div style="font-size:18px;margin-bottom:2px">📊</div>
+                        <div style="font-weight:700;font-size:12px;color:#fff">IVs & Stats</div>
+                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px">Status do Pokémon</div>
+                    </button>
+
+                    <button class="piw-hub-btn" id="piw-open-moves" style="border-top:2px solid #06b6d4">
+                        <div style="font-size:18px;margin-bottom:2px">⚔️</div>
+                        <div style="font-weight:700;font-size:12px;color:#fff">Moves</div>
+                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px">Ataques do time</div>
+                    </button>
                 </div>
             </div>
-            <div class="piw-card">
-                <div class="piw-card-label">Ferramentas</div>
-                <div style="display:flex;gap:6px">
-                    <button class="piw-btn" id="piw-toggle-iv" style="flex:1;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;padding:8px 6px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:11.5px;box-shadow:0 2px 8px rgba(139,92,246,.3)" title="Abrir/fechar janela flutuante de IVs e Stats">📊 IVs / Info</button>
-                    <button class="piw-btn" id="piw-toggle-moves" style="flex:1;background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff;padding:8px 6px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:11.5px;box-shadow:0 2px 8px rgba(6,182,212,.3)" title="Abrir/fechar janela flutuante de Moves">⚔ Moves</button>
-                </div>
-            </div>
-            <div class="piw-card">
-                <div class="piw-card-label">Pokémon</div>
-                <button class="piw-btn piw-btn-primary" id="piw-open-pokedex" style="width:100%;padding:7px 0;font-size:12px;font-weight:600">Selecionar Pokémon</button>
-                <div class="piw-selected-tags" id="piw-selected-tags"></div>
-                <div class="piw-hint" id="piw-hint">Nenhum selecionado</div>
-            </div>
-            </div>
-            <div class="piw-win-resize" title="Arraste para redimensionar"></div>
         `;
-
-
 
         const opacitySlider = panel.querySelector('#piw-opacity');
         if (opacitySlider) {
@@ -1264,68 +1659,11 @@
             bringToFront(panel);
         });
 
-
-
-        // Botão Play - iniciar caça
-        panel.querySelector('#piw-play').addEventListener('click', () => {
-            if (!busy && selectedPokemon.length > 0) {
-                enabled = true;
-                GM_setValue('piw_enabled', true);
-                doSwitch();
-            }
-        });
-        // Botão Stop - parar e voltar pra cidade (preserva abates e capturas)
-        panel.querySelector('#piw-stop').addEventListener('click', () => {
-            enabled = false;
-            GM_setValue('piw_enabled', false);
-            huntingPokemon = '';
-            GM_setValue('piw_huntingPokemon', '');
-            resetObservedMoves();
-            syncUI();
-            const houseBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn[data-guide*="home"], button.dock-btn[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"]');
-            if (houseBtn) {
-                houseBtn.click();
-                GM_log('[AutoHunt] Stop: voltando pra cidade');
-            } else {
-                GM_log('[AutoHunt] Stop: botão da casa não encontrado');
-            }
-        });
-        panel.querySelector('#piw-shiny-only').onchange = function() {
-            shinyOnlyMode = this.checked;
-            GM_setValue('piw_shinyOnly', shinyOnlyMode);
-            syncUI();
-        };
-        panel.querySelector('#piw-loop').onchange = function() {
-            loopMode = this.checked;
-            GM_setValue('piw_loopMode', loopMode);
-            syncUI();
-        };
-        panel.querySelector('#piw-exit-kills').onchange = function() {
-            exitOnKills = this.checked;
-            GM_setValue('piw_exitOnKills', exitOnKills);
-            syncUI();
-        };
-        panel.querySelector('#piw-exit-captures').onchange = function() {
-            exitOnCaptures = this.checked;
-            GM_setValue('piw_exitOnCaptures', exitOnCaptures);
-            syncUI();
-        };
-        panel.querySelector('#piw-target').onchange = function() {
-            GM_setValue('piw_killTarget', parseInt(this.value) || 100);
-            syncUI();
-        };
-        panel.querySelector('#piw-capture-target').onchange = function() {
-            GM_setValue('piw_captureTarget', parseInt(this.value) || 1);
-            syncUI();
-        };
-        panel.querySelector('#piw-reset').onclick = () => { killCount = 0; captureCount = 0; sessionShinyCount = 0; resetObservedMoves(); syncUI(); };
-        panel.querySelector('#piw-toggle-iv')?.addEventListener('click', toggleInfoWindow);
-        panel.querySelector('#piw-toggle-moves')?.addEventListener('click', toggleMovesWindow);
-
-        // Botão Pokédex
-        panel.querySelector('#piw-open-pokedex').addEventListener('click', () => openPokedexModal());
-
-        // Botão Começar caça (full view) - removido, agora é Play/Stop
+        // Hub button listeners
+        panel.querySelector('#piw-open-autohunt').addEventListener('click', toggleAutoHuntWindow);
+        panel.querySelector('#piw-open-analyzer').addEventListener('click', toggleTrackerWindow);
+        panel.querySelector('#piw-open-ivs').addEventListener('click', toggleInfoWindow);
+        panel.querySelector('#piw-open-moves').addEventListener('click', toggleMovesWindow);
 
         document.body.appendChild(panel);
 
@@ -1337,20 +1675,10 @@
             if (!isNaN(pt)) { panel.style.top = pt + 'px'; panel.style.bottom = 'auto'; }
         }
 
-        const savedSize = GM_getValue('piw_panelSize', null);
-        if (savedSize && savedSize.w && savedSize.h) {
-            panel.style.width = savedSize.w + 'px';
-            panel.style.height = savedSize.h + 'px';
-        }
-
         const title = panel.querySelector('h3');
         makeDraggable(panel, title, 'piw_panelPos');
 
-        const resizeHandle = panel.querySelector('.piw-win-resize');
-        makeResizable(panel, resizeHandle, 'piw_panelSize', 340, 200);
-
-        renderSelectedTags();
-        renderPokemonList('');
+        createAutoHuntWindowDOM();
     }
 
     function syncUI() {
@@ -1372,6 +1700,24 @@
 
         const target = GM_getValue('piw_killTarget', 100);
         const capTarget = GM_getValue('piw_captureTarget', 1);
+
+        // Atualização do Hub Principal
+        const hubLeader = document.getElementById('piw-hub-leader');
+        const hubStatus = document.getElementById('piw-hub-status');
+        const hubRoute = document.getElementById('piw-hub-route');
+        const hubTarget = document.getElementById('piw-hub-target');
+        const hubAhSub = document.getElementById('piw-hub-ah-sub');
+
+        if (hubLeader) hubLeader.textContent = `👑 Líder: ${leaderName ? `${leaderName} (Lv. ${leaderLevel || '?'})` : '—'}`;
+        if (hubStatus) {
+            hubStatus.innerHTML = enabled
+                ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(34,197,94,.2);color:#34d399">▶ Rodando</span>`
+                : `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(239,68,68,.2);color:#f87171">⏸ Pausado</span>`;
+        }
+        if (hubRoute) hubRoute.textContent = currentRoute || '—';
+        if (hubTarget) hubTarget.textContent = huntingPokemon || (selectedPokemon.length > 0 ? selectedPokemon[0] : 'Nenhum');
+        if (hubAhSub) hubAhSub.textContent = `${enabled ? '▶ Caçando' : '⏸ Pausado'} · ${selectedPokemon.length} alvo(s)`;
+
         const killsEl = document.getElementById('piw-kills');
         const capsEl = document.getElementById('piw-captures');
         const barKills = document.getElementById('piw-bar-kills');
@@ -1381,6 +1727,7 @@
         const cityEl = document.getElementById('piw-city-full');
         const leaderEl = document.getElementById('piw-leader');
         const shinyEl = document.getElementById('piw-shiny');
+
         if (killsEl) killsEl.textContent = `Abates: ${killCount} / ${target}`;
         if (capsEl) capsEl.textContent = `Capturas: ${captureCount} / ${capTarget}`;
         if (barKills) barKills.style.width = Math.min(100, killCount/target*100) + '%';
@@ -1408,33 +1755,7 @@
         if (shinyEl) {
             shinyEl.textContent = `✨ Shiny: ${sessionShinyCount}`;
         }
-        const leaderMini = document.getElementById('piw-leader-mini');
-        if (leaderMini) {
-            if (leaderName) {
-                const imgUrl = getPokemonImageUrl(leaderPokeId, leaderName, true);
-                const fallbackUrl = getPokemonImageUrl(leaderPokeId, leaderName, false);
-                const typeBadges = leaderTypes.map(t => `<span class="piw-type-badge" style="background:${TYPE_COLORS_MAP[t.toLowerCase()]||TYPE_COLORS[t]||'#555'};font-size:8px;padding:1px 5px">${getTypeLabelPT(t)}</span>`).join(' ');
-                leaderMini.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px">${imgUrl ? `<div style="width:38px;height:38px;border:2px solid #3d4a6a;border-radius:8px;background:#131720;display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${imgUrl}" style="width:32px;height:32px;image-rendering:pixelated" onerror="this.onerror=null;this.src='${fallbackUrl}'"></div>` : ''}<div style="text-align:left"><div style="display:flex;align-items:baseline;gap:4px"><span style="color:#e0e4ef;font-weight:700;font-size:13px">${leaderName}</span><span style="color:#93a0e8;font-weight:600;font-size:10px;margin-left:2px">Lv. ${leaderLevel || '?'}</span></div><div style="display:flex;gap:3px;margin-top:2px">${typeBadges}</div></div></div>`;
-            } else {
-                leaderMini.textContent = '—';
-            }
-        }
-        const shinyMini = document.getElementById('piw-shiny-mini');
-        if (shinyMini) shinyMini.textContent = `✨ Shiny: ${sessionShinyCount}`;
-        const killsMini = document.getElementById('piw-kills-mini');
-        const capsMini = document.getElementById('piw-caps-mini');
-        const barKillsMini = document.getElementById('piw-bar-kills-mini');
-        const barCapsMini = document.getElementById('piw-bar-caps-mini');
-        if (killsMini) killsMini.textContent = `Abates: ${killCount} / ${target}`;
-        if (capsMini) capsMini.textContent = `Capturas: ${captureCount} / ${capTarget}`;
-        if (barKillsMini) barKillsMini.style.width = Math.min(100, killCount/target*100) + '%';
-        if (barCapsMini) barCapsMini.style.width = Math.min(100, captureCount/capTarget*100) + '%';
-        const routeMini = document.getElementById('piw-route-mini');
-        if (routeMini) routeMini.textContent = currentRoute || '—';
-        const startMini = document.getElementById('piw-start-hunt-mini');
-        if (startMini) startMini.style.display = (isCity() && selectedPokemon.length > 0 && !busy) ? 'block' : 'none';
         const huntEl = document.getElementById('piw-hunting-display');
-        const huntElMini = document.getElementById('piw-hunting-display-mini');
         const huntHTML = (huntingPokemon && selectedPokemon.length > 0 && !isCity()) ? (() => {
             const creature = creatures.find(c => c.name?.toLowerCase() === huntingPokemon.toLowerCase());
             const types = [creature?.type1, creature?.type2].filter(Boolean);
@@ -1442,7 +1763,6 @@
             return `<div style="display:flex;align-items:center;justify-content:center;gap:8px"><span style="color:#e0e4ef;font-weight:700;font-size:15px">${huntingPokemon}</span><span style="display:flex;gap:4px">${typeBadges}</span></div>`;
         })() : '';
         if (huntEl) huntEl.innerHTML = huntHTML;
-        if (huntElMini) huntElMini.innerHTML = huntHTML;
         if (infoWindowVisible) renderInfoWindow();
         saveState();
         renderInfoWindow();
@@ -1977,13 +2297,18 @@
         }
     }
 
-    let lastObservedRoute = '';
-
     function resetObservedMoves() {
         observedMovesMap.clear();
         if (movesWindowVisible) renderMovesWindow();
         GM_log('[AutoHunt] Golpes tomados nesta hunt foram resetados.');
     }
+
+    // Impede que o mousedown nos botões de fechar ou interativos inicie o arrasto da janela
+    document.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.piw-close, .piw-ah-close, .piw-tw-close, .piw-iw-close, .piw-mw-close, .piw-modal-close, [class*="close"], [id*="close"], [title*="Fechar"], input, button, select, label, .piw-tag-remove')) {
+            e.stopPropagation();
+        }
+    }, true);
 
     // Escuta cliques no botão da casinha/cidade e hashchange para ocultar pokémon da caça
     document.addEventListener('click', (e) => {
@@ -2199,6 +2524,695 @@
         body.innerHTML = html;
     }
 
+    // ========== CATÁLOGO DE ITENS E MOTOR DE HUNT NATIVO (100% AUTÔNOMO) ==========
+    const gameItemsMap = new Map();
+    try {
+        fetch('/game/items.json')
+            .then(r => r.json())
+            .then(data => {
+                const list = Array.isArray(data?.items) ? data.items : [];
+                for (const it of list) {
+                    if (it && it.id != null) gameItemsMap.set(Number(it.id), it);
+                }
+            })
+            .catch(() => {});
+    } catch(e) {}
+
+    function getItemNpcPrice(itemId, fallbackPrice) {
+        if (!itemId && !fallbackPrice) return 0;
+        const it = gameItemsMap.get(Number(itemId));
+        if (it) {
+            const p = Number(it.npcPrice ?? it.priceNpc ?? it.sellPrice ?? it.price ?? it.priceGold ?? it.value);
+            if (Number.isFinite(p) && p >= 0) return p;
+        }
+        const fallback = Number(fallbackPrice);
+        return Number.isFinite(fallback) && fallback >= 0 ? fallback : 0;
+    }
+
+    let gameBallPrices = { 1: 5, 2: 81, 4: 130, 6: 400 };
+    let gameBallCatalog = {};
+    let lastKnownBallsCounts = null;
+    let gamePotionPrices = { 200: 5, 201: 10, 202: 22, 203: 55, 204: 230, 205: 40, 206: 350 };
+    const knownPlayerPokeIds = new Set();
+    let initialPokesLoaded = false;
+
+    const lastKnownPotionCounts = new Map();
+    function trackInventoryPotions(obj) {
+        if (!obj || typeof obj !== 'object') return;
+        const currentCounts = new Map();
+
+        function scan(o, depth = 0) {
+            if (!o || typeof o !== 'object' || depth > 5) return;
+            if (Array.isArray(o)) {
+                for (const item of o) scan(item, depth + 1);
+                return;
+            }
+            const itemId = Number(o.itemId ?? o.id);
+            const qty = Number(o.qty ?? o.count ?? o.quantity ?? o.amount);
+            if (Number.isFinite(itemId) && Number.isFinite(qty)) {
+                const it = gameItemsMap.get(itemId);
+                const cat = it?.category;
+                if (cat === 'heal' || cat === 'revive' || (itemId >= 200 && itemId <= 206)) {
+                    currentCounts.set(itemId, qty);
+                }
+            }
+            for (const [k, v] of Object.entries(o)) {
+                const kNum = Number(k);
+                if (Number.isFinite(kNum) && typeof v === 'number' && (kNum >= 200 && kNum <= 206)) {
+                    currentCounts.set(kNum, v);
+                } else if (typeof v === 'object') {
+                    scan(v, depth + 1);
+                }
+            }
+        }
+
+        scan(obj);
+
+        if (currentCounts.size > 0 && lastKnownPotionCounts.size > 0) {
+            for (const [id, count] of currentCounts) {
+                const prev = lastKnownPotionCounts.get(id);
+                if (prev !== undefined && count < prev) {
+                    const diff = prev - count;
+                    huntSession.potions += diff;
+                    huntSession.potionsByType[id] = (huntSession.potionsByType[id] || 0) + diff;
+                }
+            }
+        }
+
+        for (const [id, count] of currentCounts) {
+            lastKnownPotionCounts.set(id, count);
+        }
+    }
+
+    function loadSavedHuntSession() {
+        try {
+            const raw = GM_getValue('piw_saved_hunt_session', null);
+            if (raw && typeof raw === 'object') {
+                const dropsMap = new Map();
+                if (Array.isArray(raw.dropsList)) {
+                    for (const item of raw.dropsList) {
+                        if (item && item.key) dropsMap.set(item.key, item.data);
+                    }
+                }
+                const capturedPokes = Array.isArray(raw.capturedPokes) ? raw.capturedPokes : [];
+                return {
+                    startAt: Number(raw.startAt) || Date.now(),
+                    slug: raw.slug || null,
+                    huntName: raw.huntName || null,
+                    speciesId: raw.speciesId || null,
+                    activeMs: Number(raw.activeMs) || 0,
+                    lastTickAt: null,
+                    kills: Number(raw.kills) || 0,
+                    xp: Number(raw.xp) || 0,
+                    caps: Number(raw.caps) || capturedPokes.length,
+                    capsValue: Number(raw.capsValue) || capturedPokes.reduce((sum, p) => sum + (Number(p.sellValue) || 0), 0),
+                    capturedPokes: capturedPokes,
+                    balls: Number(raw.balls) || 0,
+                    ballsByType: raw.ballsByType || {},
+                    potions: Number(raw.potions) || 0,
+                    potionsByType: raw.potionsByType || {},
+                    drops: dropsMap
+                };
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function persistHuntSession() {
+        try {
+            if (!huntSession) return;
+            const dropsList = [];
+            for (const [key, data] of huntSession.drops.entries()) {
+                dropsList.push({ key, data });
+            }
+            const toSave = {
+                startAt: huntSession.startAt,
+                slug: huntSession.slug,
+                huntName: huntSession.huntName,
+                speciesId: huntSession.speciesId,
+                activeMs: huntSession.activeMs,
+                kills: huntSession.kills,
+                xp: huntSession.xp,
+                caps: huntSession.caps,
+                capsValue: huntSession.capsValue || 0,
+                capturedPokes: huntSession.capturedPokes || [],
+                balls: huntSession.balls,
+                ballsByType: huntSession.ballsByType,
+                potions: huntSession.potions,
+                potionsByType: huntSession.potionsByType,
+                dropsList: dropsList
+            };
+            GM_setValue('piw_saved_hunt_session', toSave);
+        } catch(e) {}
+    }
+
+    let huntSession = loadSavedHuntSession() || {
+        startAt: Date.now(),
+        slug: null,
+        huntName: null,
+        speciesId: null,
+        activeMs: 0,
+        lastTickAt: null,
+        kills: 0,
+        xp: 0,
+        caps: 0,
+        capsValue: 0,
+        capturedPokes: [],
+        balls: 0,
+        ballsByType: {},
+        potions: 0,
+        potionsByType: {},
+        drops: new Map() // key -> { name, itemId, qty, price, icon }
+    };
+
+    // ========== JANELA DE RENDIMENTO / FARM TRACKER ==========
+    let trackerWindowVisible = GM_getValue('piw_tracker_win_visible', false);
+    let trackerActiveTab = 'session'; // 'session' | 'history'
+    let trackerActiveSlug = huntSession?.slug ? huntSession.slug.toLowerCase().trim() : '';
+    let historySortBy = 'recent'; // 'recent' | 'exp' | 'net'
+    let routeHistory = GM_getValue('piw_route_history', []);
+    let trackerInterval = null;
+
+    function getPokemonSpriteUrl(pokeNameOrId) {
+        if (!pokeNameOrId) return '';
+        const num = Number(pokeNameOrId);
+        if (Number.isFinite(num) && num > 0 && num < 10000) {
+            return getPokemonImageUrl(num, '');
+        }
+        return getPokemonImageUrl(0, String(pokeNameOrId));
+    }
+
+    function isCitySlug(slug) {
+        if (!slug) return true;
+        const s = String(slug).toLowerCase().trim();
+        if (CITY_SLUGS.has(s)) return true;
+        return /cidade|city|town|village|cassino|casino|depot|center|market|pallet|viridian|pewter|cerulean|vermilion|lavender|celadon|fuchsia|saffron|cinnabar|pokecenter/i.test(s);
+    }
+
+    function isHuntActive() {
+        if (!huntSession || !huntSession.lastTickAt) return false;
+        return (Date.now() - huntSession.lastTickAt) < 3500;
+    }
+
+    function getTrackerElapsedSec() {
+        return Math.max(0, Math.floor((huntSession?.activeMs || 0) / 1000));
+    }
+
+    function getSessionLootTotal() {
+        let total = 0;
+        for (const d of huntSession.drops.values()) {
+            const unitPrice = getItemNpcPrice(d.itemId, d.price);
+            total += (d.qty || 0) * unitPrice;
+        }
+        return total;
+    }
+
+    function getSessionCapsTotal() {
+        return Number(huntSession?.capsValue || 0);
+    }
+
+    function getSessionSupplyTotal() {
+        const effectiveBalls = Math.max(huntSession.balls, huntSession.kills);
+        let ballsCost = 0;
+        if (huntSession.balls > 0) {
+            for (const [id, qty] of Object.entries(huntSession.ballsByType)) {
+                ballsCost += (Number(qty) || 0) * (gameBallPrices[id] || 81);
+            }
+        } else {
+            ballsCost = effectiveBalls * (gameBallPrices[2] || 81);
+        }
+
+        let potionsCost = 0;
+        for (const [id, qty] of Object.entries(huntSession.potionsByType)) {
+            potionsCost += (Number(qty) || 0) * (gamePotionPrices[id] || 300);
+        }
+        return ballsCost + potionsCost;
+    }
+
+    function onRouteOrHuntChange(newSlug) {
+        const cleanSlug = (newSlug || currentSlug || '').toLowerCase().trim();
+        if (!cleanSlug) return;
+
+        // Se a nova rota for cidade, não reseta e não salva
+        if (isCitySlug(cleanSlug)) {
+            return;
+        }
+
+        // Se for a primeira inicialização após carregar a página
+        if (!trackerActiveSlug) {
+            trackerActiveSlug = cleanSlug;
+            if (huntSession) {
+                huntSession.slug = cleanSlug;
+                if (!huntSession.huntName || /cidade|centro/i.test(huntSession.huntName)) {
+                    huntSession.huntName = getDisplayHuntName() || cleanSlug;
+                }
+            }
+            return;
+        }
+
+        // Se REALMENTE trocou para uma hunt diferente
+        if (cleanSlug !== trackerActiveSlug) {
+            // Salva a hunt anterior no histórico apenas se tiver durado no mínimo 10 minutos (600.000 ms)
+            const minAutoSaveMs = 10 * 60 * 1000; // 10 minutos
+            if (huntSession && (huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
+                saveCurrentRouteSession(false); // false para não trocar a aba ativa
+            }
+
+            trackerActiveSlug = cleanSlug;
+            resetTrackerSession(cleanSlug);
+        }
+    }
+
+    function resetTrackerSession(newSlug) {
+        const slugVal = newSlug || currentSlug || null;
+        huntSession = {
+            startAt: Date.now(),
+            slug: slugVal,
+            huntName: getDisplayHuntName() || slugVal || 'Rota',
+            speciesId: null,
+            activeMs: 0,
+            lastTickAt: null,
+            kills: 0,
+            xp: 0,
+            caps: 0,
+            capsValue: 0,
+            capturedPokes: [],
+            balls: 0,
+            ballsByType: {},
+            potions: 0,
+            potionsByType: {},
+            drops: new Map()
+        };
+        lastHeroHp = null;
+        lastHeroMaxHp = null;
+        persistHuntSession();
+        if (trackerWindowVisible) renderTrackerWindow();
+        GM_log('[AutoHunt] Sessão de rendimento resetada para:', huntSession.huntName);
+    }
+
+    function saveCurrentRouteSession(switchToHistoryTab = true) {
+        const elapsedSec = Math.max(1, getTrackerElapsedSec());
+        const hours = Math.max(1 / 3600, elapsedSec / 3600);
+        const lootGained = getSessionLootTotal();
+        const capsGained = getSessionCapsTotal();
+        const supplyCost = getSessionSupplyTotal();
+        const expPerHour = Math.round(huntSession.xp / hours);
+        const lootPerHour = Math.round((lootGained + capsGained) / hours);
+        const supplyPerHour = Math.round(supplyCost / hours);
+        const netBalance = lootGained + capsGained - supplyCost;
+        const netPerHour = Math.round(netBalance / hours);
+        const killsPerHour = Math.round(huntSession.kills / hours);
+
+        const routeTitle = huntSession?.huntName || huntSession?.slug || getDisplayHuntName() || currentRoute || currentSlug || 'Rota';
+
+        const entry = {
+            id: Date.now(),
+            route: routeTitle,
+            leaderName: cleanPokemonName(leaderName || '?'),
+            leaderLevel: leaderLevel || 1,
+            durationSec: elapsedSec,
+            expGained: huntSession.xp,
+            expPerHour: expPerHour,
+            lootGained: lootGained,
+            capsGained: capsGained,
+            lootPerHour: lootPerHour,
+            supplyCost: supplyCost,
+            supplyPerHour: supplyPerHour,
+            netBalance: netBalance,
+            netPerHour: netPerHour,
+            kills: huntSession.kills,
+            killsPerHour: killsPerHour,
+            caps: huntSession.caps,
+            date: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        };
+
+        routeHistory.unshift(entry);
+        if (routeHistory.length > 50) routeHistory.pop();
+        GM_setValue('piw_route_history', routeHistory);
+        if (switchToHistoryTab) {
+            trackerActiveTab = 'history';
+        }
+        renderTrackerWindow();
+        GM_log('[AutoHunt] Sessão salva automaticamente no histórico:', entry.route);
+    }
+
+    function createTrackerWindowDOM() {
+        if (document.getElementById('piw-tracker-window')) return;
+
+        const win = document.createElement('div');
+        win.id = 'piw-tracker-window';
+
+        const storedPos = GM_getValue('piw_tracker_win_pos', { left: 400, top: 380 });
+        const storedSize = GM_getValue('piw_tracker_win_size', null);
+        const twL = parseFloat(storedPos.left);
+        const twT = parseFloat(storedPos.top);
+        win.style.left = `${!isNaN(twL) ? twL : 400}px`;
+        win.style.top = `${!isNaN(twT) ? twT : 380}px`;
+        if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
+        if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
+        win.style.display = trackerWindowVisible ? 'flex' : 'none';
+
+        win.innerHTML = `
+            <div class="piw-tw-head">
+                <span class="piw-tw-title"><span class="piw-tw-dot"></span>⏱️ Hunt Analyzer</span>
+                <span class="piw-tw-close" id="piw-tw-close-btn" title="Fechar">✕</span>
+            </div>
+            <div class="piw-tw-tabs">
+                <button class="piw-tw-tab active" id="piw-tw-tab-session">⏱️ Sessão Atual</button>
+                <button class="piw-tw-tab" id="piw-tw-tab-history">🏆 Histórico de Rotas</button>
+            </div>
+            <div class="piw-tw-body"></div>
+            <div class="piw-win-resize" title="Arraste para redimensionar"></div>
+        `;
+
+        makeBringableToFront(win);
+        document.body.appendChild(win);
+        applyOpacityAll();
+
+        win.querySelector('#piw-tw-close-btn').addEventListener('click', closeTrackerWindow);
+
+        win.querySelector('#piw-tw-tab-session').addEventListener('click', () => {
+            trackerActiveTab = 'session';
+            renderTrackerWindow();
+        });
+
+        win.querySelector('#piw-tw-tab-history').addEventListener('click', () => {
+            trackerActiveTab = 'history';
+            renderTrackerWindow();
+        });
+
+        const head = win.querySelector('.piw-tw-head');
+        makeDraggable(win, head, 'piw_tracker_win_pos');
+
+        const resizeHandle = win.querySelector('.piw-win-resize');
+        makeResizable(win, resizeHandle, 'piw_tracker_win_size', 340, 200);
+    }
+
+    function closeTrackerWindow() {
+        trackerWindowVisible = false;
+        GM_setValue('piw_tracker_win_visible', false);
+        const win = document.getElementById('piw-tracker-window');
+        if (win) win.style.display = 'none';
+        if (trackerInterval) {
+            clearInterval(trackerInterval);
+            trackerInterval = null;
+        }
+    }
+
+    function toggleTrackerWindow() {
+        let win = document.getElementById('piw-tracker-window');
+        if (!win) {
+            createTrackerWindowDOM();
+            win = document.getElementById('piw-tracker-window');
+        }
+        if (!win) return;
+
+        trackerWindowVisible = !trackerWindowVisible;
+        GM_setValue('piw_tracker_win_visible', trackerWindowVisible);
+        win.style.display = trackerWindowVisible ? 'flex' : 'none';
+        if (trackerWindowVisible) {
+            bringToFront(win);
+            renderTrackerWindow();
+            if (!trackerInterval) {
+                trackerInterval = setInterval(() => {
+                    if (trackerWindowVisible && trackerActiveTab === 'session') {
+                        renderTrackerWindow();
+                    }
+                }, 1000);
+            }
+        } else {
+            if (trackerInterval) {
+                clearInterval(trackerInterval);
+                trackerInterval = null;
+            }
+        }
+    }
+
+    function formatDuration(totalSeconds) {
+        const hrs = Math.floor(totalSeconds / 3600);
+        const mins = Math.floor((totalSeconds % 3600) / 60);
+        const secs = totalSeconds % 60;
+        if (hrs > 0) {
+            return `${hrs}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+        }
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function renderTrackerWindow() {
+        const win = document.getElementById('piw-tracker-window');
+        if (!win || !trackerWindowVisible) return;
+
+        const body = win.querySelector('.piw-tw-body');
+        if (!body) return;
+
+        const tabSessionBtn = win.querySelector('#piw-tw-tab-session');
+        const tabHistoryBtn = win.querySelector('#piw-tw-tab-history');
+        if (tabSessionBtn && tabHistoryBtn) {
+            tabSessionBtn.className = `piw-tw-tab ${trackerActiveTab === 'session' ? 'active' : ''}`;
+            tabHistoryBtn.className = `piw-tw-tab ${trackerActiveTab === 'history' ? 'active' : ''}`;
+            tabHistoryBtn.textContent = `🏆 Histórico (${routeHistory.length})`;
+        }
+
+        if (trackerActiveTab === 'history') {
+            if (!routeHistory || routeHistory.length === 0) {
+                body.innerHTML = `
+                    <div style="text-align:center;color:#7d86ad;padding:30px 10px">
+                        <div style="font-size:26px;margin-bottom:8px">📊</div>
+                        <b>Nenhuma rota salva ainda.</b><br>
+                        <span style="font-size:11px">Ao mudar de hunt ou clicar em <b>"💾 Salvar no Histórico"</b>, seus farms aparecerão aqui!</span>
+                    </div>
+                `;
+                return;
+            }
+
+            const maxExp = Math.max(...routeHistory.map(r => r.expPerHour || 0), 1);
+            const maxProfit = Math.max(...routeHistory.map(r => r.netPerHour || 0), 1);
+
+            let sortedHistory = [...routeHistory];
+            if (historySortBy === 'exp') {
+                sortedHistory.sort((a, b) => (b.expPerHour || 0) - (a.expPerHour || 0));
+            } else if (historySortBy === 'net') {
+                sortedHistory.sort((a, b) => (b.netPerHour || 0) - (a.netPerHour || 0));
+            } else {
+                sortedHistory.sort((a, b) => b.id - a.id);
+            }
+
+            let html = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="display:flex;gap:4px">
+                        <button class="piw-tw-sort-btn ${historySortBy === 'recent' ? 'active' : ''}" data-sort="recent">🕒 Recentes</button>
+                        <button class="piw-tw-sort-btn ${historySortBy === 'exp' ? 'active' : ''}" data-sort="exp">✨ Top XP/h</button>
+                        <button class="piw-tw-sort-btn ${historySortBy === 'net' ? 'active' : ''}" data-sort="net">💰 Top Lucro/h</button>
+                    </div>
+                    <button id="piw-tw-clear-history" style="background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:6px;padding:2px 8px;font-size:10px;cursor:pointer;font-weight:700">Limpar Tudo</button>
+                </div>
+            `;
+
+            html += sortedHistory.map((item) => {
+                const isBestExp = item.expPerHour === maxExp && item.expPerHour > 0;
+                const isBestProfit = item.netPerHour === maxProfit && item.netPerHour > 0;
+                const isNetPositive = (item.netBalance ?? 0) >= 0;
+                const sign = isNetPositive ? '+' : '-';
+                const absNet = Math.abs(item.netBalance ?? 0);
+                const absNetHour = Math.abs(item.netPerHour ?? 0);
+                const sprite = getPokemonSpriteUrl(item.route);
+
+                return `
+                    <div class="piw-tw-history-item${isBestExp ? ' best-exp' : ''}">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                            <div>
+                                <div style="display:flex;align-items:center;gap:6px">
+                                    ${sprite ? `<img src="${sprite}" style="width:22px;height:22px;object-fit:contain;image-rendering:pixelated" onerror="this.style.display='none'">` : ''}
+                                    <span style="font-weight:700;color:#fff;font-size:13px">${cleanPokemonName(item.route)}</span>
+                                    ${isBestExp ? '<span class="piw-tw-badge-best">🏆 TOP XP</span>' : ''}
+                                    ${isBestProfit ? '<span class="piw-tw-badge-best" style="background:linear-gradient(135deg,#eab308,#ca8a04)">💰 TOP LUCRO</span>' : ''}
+                                </div>
+                                <div style="font-size:10px;color:#7d86ad;margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:3px 6px">
+                                    <span style="white-space:nowrap">👑 ${item.leaderName} (Nv. ${item.leaderLevel})</span>
+                                    <span style="color:rgba(255,255,255,.15)">·</span>
+                                    <span style="white-space:nowrap">⏱️ ${formatDuration(item.durationSec)}</span>
+                                    <span style="color:rgba(255,255,255,.15)">·</span>
+                                    <span style="white-space:nowrap">⚔️ ${item.kills} abates</span>
+                                    ${item.caps ? `<span style="color:rgba(255,255,255,.15)">·</span><span style="white-space:nowrap">🔴 ${item.caps} capturas</span>` : ''}
+                                    <span style="color:rgba(255,255,255,.15)">·</span>
+                                    <span style="white-space:nowrap">📅 ${item.date}</span>
+                                </div>
+                            </div>
+                            <button class="piw-tw-del-item" data-id="${item.id}" style="background:none;border:none;color:#7d86ad;cursor:pointer;font-size:14px;padding:2px 4px" title="Excluir do histórico">✕</button>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:4px;margin-top:6px;background:rgba(0,0,0,.2);padding:6px;border-radius:8px">
+                            <div style="text-align:center">
+                                <div style="font-size:9.5px;color:#9aa3bf">✨ XP / HORA</div>
+                                <div style="font-size:12px;font-weight:700;color:#34d399">${Number(item.expPerHour || 0).toLocaleString('pt-BR')}</div>
+                            </div>
+                            <div style="text-align:center">
+                                <div style="font-size:9.5px;color:#9aa3bf">📈 SALDO / HORA</div>
+                                <div style="font-size:12px;font-weight:700;color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${Number(absNetHour).toLocaleString('pt-BR')}</div>
+                            </div>
+                            <div style="text-align:center">
+                                <div style="font-size:9.5px;color:#9aa3bf">⚔️ ABATES / HORA</div>
+                                <div style="font-size:12px;font-weight:700;color:#60a5fa">${Number(item.killsPerHour || 0).toLocaleString('pt-BR')}/h</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;font-size:9.5px;color:#7d86ad;margin-top:4px;padding:0 4px">
+                            <span>Loot: <b style="color:#facc15">$${Number(item.lootGained || 0).toLocaleString('pt-BR')}</b></span>
+                            <span>Supply: <b style="color:#f87171">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
+                            <span>Saldo: <b style="color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            body.innerHTML = html;
+
+            body.querySelectorAll('.piw-tw-sort-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    historySortBy = btn.dataset.sort;
+                    renderTrackerWindow();
+                });
+            });
+
+            body.querySelector('#piw-tw-clear-history')?.addEventListener('click', () => {
+                if (confirm('Tem certeza que deseja limpar todo o histórico de rotas salvas?')) {
+                    routeHistory = [];
+                    GM_setValue('piw_route_history', []);
+                    renderTrackerWindow();
+                }
+            });
+
+            body.querySelectorAll('.piw-tw-del-item').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = Number(btn.dataset.id);
+                    routeHistory = routeHistory.filter(r => r.id !== id);
+                    GM_setValue('piw_route_history', routeHistory);
+                    renderTrackerWindow();
+                });
+            });
+            return;
+        }
+
+        // Tab 'session'
+        const elapsedSec = getTrackerElapsedSec();
+        const hours = Math.max(1 / 3600, elapsedSec / 3600);
+        const sessionLoot = getSessionLootTotal();
+        const sessionCaps = getSessionCapsTotal();
+        const sessionSupply = getSessionSupplyTotal();
+        const expPerHour = elapsedSec > 0 ? Math.round(huntSession.xp / hours) : 0;
+        const lootPerHour = elapsedSec > 0 ? Math.round(sessionLoot / hours) : 0;
+        const supplyPerHour = elapsedSec > 0 ? Math.round(sessionSupply / hours) : 0;
+        const netBalance = sessionLoot + sessionCaps - sessionSupply;
+        const netPerHour = elapsedSec > 0 ? Math.round(netBalance / hours) : 0;
+        const killsPerHour = elapsedSec > 0 ? Math.round(huntSession.kills / hours) : 0;
+
+        const isNetPositive = netBalance >= 0;
+        const sign = isNetPositive ? '+' : '-';
+        const absNet = Math.abs(netBalance);
+
+        const nextLevel = (leaderLevel || 1) + 1;
+        const partyStats = getPartyMonStatsFromDOM(0, leaderName);
+        const expPct = partyStats?.expPct ?? currentLeaderData?.expPct ?? null;
+        let etaVal = `Nv. ${nextLevel}`;
+        let etaSub = 'Previsão em tempo real';
+
+        if (expPct !== null && expPct >= 0 && expPct < 100) {
+            const remainingPct = 100 - expPct;
+            if (expPerHour > 0 && huntSession.xp > 0 && elapsedSec >= 5) {
+                const approxLevelExp = Math.max(2000, 3 * (leaderLevel || 1) * (leaderLevel || 1) * 12);
+                const remainingExp = (remainingPct / 100) * approxLevelExp;
+                const etaMins = Math.round((remainingExp / expPerHour) * 60);
+                if (etaMins > 0 && etaMins < 6000) {
+                    const formattedEta = etaMins >= 60 ? `${Math.floor(etaMins/60)}h ${etaMins%60}m` : `${etaMins} min`;
+                    etaVal = `Lv. ${nextLevel} em ~${formattedEta}`;
+                    etaSub = `${remainingPct.toFixed(1)}% restante`;
+                } else {
+                    etaVal = `Lv. ${nextLevel}`;
+                    etaSub = `${remainingPct.toFixed(1)}% restante`;
+                }
+            } else {
+                etaVal = `Lv. ${nextLevel}`;
+                etaSub = `${remainingPct.toFixed(1)}% restante`;
+            }
+        }
+
+        const formattedTime = formatDuration(elapsedSec);
+        const active = isHuntActive();
+        const isPaused = !active;
+        const statusLabel = isPaused ? (elapsedSec === 0 ? 'AGUARDANDO COMBATE' : 'TEMPO NA HUNT · PAUSADO') : 'TEMPO NA HUNT';
+        const timerColor = isPaused ? '#facc15' : '#34d399';
+        const locationTitle = getDisplayHuntName();
+
+        body.innerHTML = `
+            <div class="piw-card" style="margin-bottom:8px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <div style="font-weight:700;font-size:13px;color:#fff">${locationTitle}</div>
+                        <div style="font-size:11px;color:#9aa3bf;margin-top:2px">👑 ${cleanPokemonName(leaderName || '?')} <span style="color:#60a5fa;font-weight:600">Lv. ${leaderLevel || 1}</span></div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-size:13px;font-weight:700;color:${timerColor};font-variant-numeric:tabular-nums">${isPaused && elapsedSec > 0 ? '⏸️ ' : ''}${formattedTime}</div>
+                        <div style="font-size:9.5px;color:${isPaused && elapsedSec > 0 ? '#f87171' : '#7d86ad'}">${statusLabel}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="piw-tw-grid">
+                <div class="piw-tw-stat" style="border-top:2px solid #34d399">
+                    <div class="piw-tw-stat-title">✨ XP / HORA</div>
+                    <div class="piw-tw-stat-val" style="color:#34d399">${expPerHour.toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">Taxa horária estimada</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid #818cf8">
+                    <div class="piw-tw-stat-title">⭐ XP TOTAL</div>
+                    <div class="piw-tw-stat-val" style="color:#818cf8">+${huntSession.xp.toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">XP ganha nesta sessão</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid #f59e0b">
+                    <div class="piw-tw-stat-title">💰 LOOT / HORA</div>
+                    <div class="piw-tw-stat-val" style="color:#f59e0b">$${lootPerHour.toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">Taxa de farm estimada</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid #facc15">
+                    <div class="piw-tw-stat-title">💎 LOOT TOTAL</div>
+                    <div class="piw-tw-stat-val" style="color:#facc15">$${sessionLoot.toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">${huntSession.drops.size} tipo(s) de itens</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#34d399' : '#f87171'}">
+                    <div class="piw-tw-stat-title">📈 SALDO / HORA</div>
+                    <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#34d399' : '#f87171'}">${sign}$${Math.abs(netPerHour).toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">${isNetPositive ? 'Lucro líquido/h' : 'Prejuízo líquido/h'}</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#4ade80' : '#f87171'}">
+                    <div class="piw-tw-stat-title">💵 SALDO TOTAL</div>
+                    <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${absNet.toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">Loot + Capturas - Supply</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid #f87171">
+                    <div class="piw-tw-stat-title">🛒 SUPPLY GASTO</div>
+                    <div class="piw-tw-stat-val" style="color:#f87171">-$${sessionSupply.toLocaleString('pt-BR')}</div>
+                    <div class="piw-tw-stat-sub">${huntSession.balls} bolas${huntSession.potions > 0 ? ` · ${huntSession.potions} poções` : ''}</div>
+                </div>
+                <div class="piw-tw-stat" style="border-top:2px solid #60a5fa">
+                    <div class="piw-tw-stat-title">🎯 PRÓX. NÍVEL</div>
+                    <div class="piw-tw-stat-val" style="font-size:12.5px;color:#93c5fd;margin-top:4px">${etaVal}</div>
+                    <div class="piw-tw-stat-sub">${etaSub}</div>
+                </div>
+            </div>
+
+            <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 12px;display:flex;justify-content:space-between;margin-bottom:8px;font-size:11px">
+                <span>⚔ Derrotados: <b style="color:#60a5fa">${huntSession.kills}</b> <small style="color:#7d86ad">(${killsPerHour}/h)</small></span>
+                <span>🔴 Capturas: <b style="color:#4ade80">${huntSession.caps}</b></span>
+            </div>
+
+            <div style="display:flex;gap:6px">
+                <button id="piw-tw-save-btn" style="flex:2;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,.3)">💾 Salvar no Histórico</button>
+                <button id="piw-tw-reset-btn" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#e0e4ef;border-radius:8px;padding:8px;font-size:11.5px;font-weight:600;cursor:pointer">↻ Resetar</button>
+            </div>
+        `;
+
+        body.querySelector('#piw-tw-save-btn')?.addEventListener('click', saveCurrentRouteSession);
+        body.querySelector('#piw-tw-reset-btn')?.addEventListener('click', resetTrackerSession);
+    }
+
 
 
     // ========== POKEMON SELECTOR ==========
@@ -2207,7 +3221,7 @@
         const hint = document.getElementById('piw-hint');
         if (!container) return;
         container.innerHTML = selectedPokemon.map((name, idx) =>
-            `<span class="piw-tag" draggable="true" data-idx="${idx}" style="cursor:move">${name} <span class="piw-tag-remove" data-name="${name}">&times;</span></span>`
+            `<span class="piw-tag" draggable="true" data-idx="${idx}" style="cursor:grab">${name} <span class="piw-tag-remove" draggable="false" data-name="${name}">&times;</span></span>`
         ).join('');
         if (hint) {
             hint.textContent = selectedPokemon.length === 0
@@ -2216,18 +3230,35 @@
         }
         // Event listeners para remover
         container.querySelectorAll('.piw-tag-remove').forEach(btn => {
+            const stopDrag = (e) => {
+                e.stopPropagation();
+                const parentTag = btn.closest('.piw-tag');
+                if (parentTag) parentTag.setAttribute('draggable', 'false');
+            };
+            const restoreDrag = (e) => {
+                e.stopPropagation();
+                const parentTag = btn.closest('.piw-tag');
+                if (parentTag) parentTag.setAttribute('draggable', 'true');
+            };
+            btn.addEventListener('mousedown', stopDrag);
+            btn.addEventListener('pointerdown', stopDrag);
+            btn.addEventListener('mouseup', restoreDrag);
+            btn.addEventListener('mouseleave', restoreDrag);
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 selectedPokemon = selectedPokemon.filter(n => n !== btn.dataset.name);
                 GM_setValue('piw_selectedPokemon', selectedPokemon);
                 renderSelectedTags();
-                renderPokemonList(document.getElementById('piw-search')?.value || '');
             });
         });
         // Drag and drop pra reordenar
         let dragIdx = null;
         container.querySelectorAll('.piw-tag').forEach(tag => {
             tag.addEventListener('dragstart', (e) => {
+                if (e.target.closest('.piw-tag-remove')) {
+                    e.preventDefault();
+                    return false;
+                }
                 dragIdx = parseInt(tag.dataset.idx);
                 tag.style.opacity = '0.4';
                 e.dataTransfer.effectAllowed = 'move';
@@ -2331,57 +3362,6 @@
         return pokemonArray;
     }
 
-    function renderPokemonList(filter) {
-        scanDOMRoutes();
-        const list = document.getElementById('piw-pokemon-list');
-        const pageInfo = document.getElementById('piw-page-info');
-        const prevBtn = document.getElementById('piw-prev-page');
-        const nextBtn = document.getElementById('piw-next-page');
-        if (!list) return;
-
-        let pokemonArray = getFilteredPokemonList(filter);
-
-        // Ordena por nível
-        pokemonArray.sort((a, b) => a.level - b.level);
-
-        // Paginação
-        const totalPages = Math.max(1, Math.ceil(pokemonArray.length / ITEMS_PER_PAGE));
-        if (currentPage > totalPages) currentPage = totalPages;
-        if (currentPage < 1) currentPage = 1;
-        const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
-        const pageItems = pokemonArray.slice(startIdx, startIdx + ITEMS_PER_PAGE);
-
-        // Atualiza controles de paginação
-        if (pageInfo) pageInfo.textContent = `${currentPage} / ${totalPages}`;
-        if (prevBtn) prevBtn.disabled = currentPage <= 1;
-        if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
-
-        list.innerHTML = pageItems.map(pokemon => {
-            const sel = selectedPokemon.includes(pokemon.name);
-            const lvlText = pokemon.level > 0 ? ` <span style="color:#8899aa">Lv.${pokemon.level}</span>` : '';
-            const canBeShiny = shinyAvailable.has(pokemon.name.toLowerCase());
-            const shinyIcon = canBeShiny ? ` <span class="piw-shiny-icon">✨</span>` : '';
-            return `<div class="piw-pokemon-item${sel?' selected':''}" data-name="${pokemon.name}">
-                <span class="piw-check">${sel ? '✓' : ''}</span>
-                ${pokemon.name}${lvlText}${shinyIcon}
-            </div>`;
-        }).join('');
-
-        list.querySelectorAll('.piw-pokemon-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const name = item.dataset.name;
-                if (selectedPokemon.includes(name)) {
-                    selectedPokemon = selectedPokemon.filter(n => n !== name);
-                } else {
-                    selectedPokemon.push(name);
-                }
-                GM_setValue('piw_selectedPokemon', selectedPokemon);
-                renderSelectedTags();
-                renderPokemonList(document.getElementById('piw-search')?.value || '');
-            });
-        });
-    }
-
     // ========== POKEDEX MODAL ==========
     let pokedexModalFilter = '';
     let pokedexModalTypeFilter = '';
@@ -2390,33 +3370,48 @@
     let pokedexSortOrder = 'id_asc';
 
     function getPokemonImageUrl(pokeId, name, animated = false) {
-        if (!pokeId || pokeId <= 0) {
-            if (name && creatures && creatures.length > 0) {
-                const c = creatures.find(cr => cr.name?.toLowerCase() === name.toLowerCase());
-                if (c && c.pokeId > 0) pokeId = c.pokeId;
+        let pId = Number(pokeId) || 0;
+
+        if (pId <= 0 || pId >= 10000) {
+            const rawName = String(name || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+            if (rawName && Array.isArray(creatures) && creatures.length > 0) {
+                // 1. Busca exata
+                const exact = creatures.find(cr => cr.name?.toLowerCase() === rawName);
+                if (exact && exact.pokeId > 0 && exact.pokeId < 10000) {
+                    pId = exact.pokeId;
+                } else {
+                    // 2. Remove prefixos custom (Ancient, Shiny, Shadow, Mega, Delta, etc.)
+                    const baseName = rawName.replace(/^(ancient|shiny|shadow|dark|corrupted|primal|mega|armored|giant|alolan|galarian|hisuian|paldean|delta|crystal|golden|boss|elite)\s+/i, '').trim();
+                    const matchBase = creatures.find(cr => cr.name?.toLowerCase() === baseName);
+                    if (matchBase && matchBase.pokeId > 0 && matchBase.pokeId < 10000) {
+                        pId = matchBase.pokeId;
+                    } else {
+                        // 3. Busca por palavra contida
+                        let bestMatch = null;
+                        for (const c of creatures) {
+                            if (!c.name || c.pokeId >= 10000) continue;
+                            const cName = c.name.toLowerCase();
+                            if (rawName.includes(cName) || cName.includes(rawName)) {
+                                if (!bestMatch || c.name.length > bestMatch.name.length) {
+                                    bestMatch = c;
+                                }
+                            }
+                        }
+                        if (bestMatch && bestMatch.pokeId > 0 && bestMatch.pokeId < 10000) {
+                            pId = bestMatch.pokeId;
+                        }
+                    }
+                }
             }
         }
-        if (!pokeId || pokeId <= 0) return '';
-        if (pokeId < 10000) {
-            if (animated && pokeId <= 649) {
-                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pokeId}.gif`;
+
+        if (pId > 0 && pId < 10000) {
+            if (animated && pId <= 649) {
+                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pId}.gif`;
             }
-            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
+            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pId}.png`;
         }
-        let bestBase = null;
-        for (const c of creatures) {
-            if (c.pokeId >= 10000 || !c.name) continue;
-            if (name?.toLowerCase().includes(c.name.toLowerCase())) {
-                if (!bestBase || c.name.length > bestBase.name.length) bestBase = c;
-            }
-        }
-        if (bestBase) {
-            if (animated && bestBase.pokeId <= 649) {
-                return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${bestBase.pokeId}.gif`;
-            }
-            return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${bestBase.pokeId}.png`;
-        }
-        return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokeId}.png`;
+        return '';
     }
 
     function openPokedexModal() {
@@ -2621,7 +3616,6 @@
             selectedPokemon = [...tempSelected];
             GM_setValue('piw_selectedPokemon', selectedPokemon);
             renderSelectedTags();
-            renderPokemonList(document.getElementById('piw-search')?.value || '');
             pokedexModalTypeFilter = '';
             pokedexModalFilter = '';
             pokedexModalWeakOnly = false;
@@ -2641,7 +3635,6 @@
             }
         }
         GM_log('[AutoHunt] ✨ Shiny disponíveis:', shinyAvailable.size);
-        renderPokemonList(document.getElementById('piw-search')?.value || '');
     }
 
     // ========== BUSCAR DADOS DO JOGO ==========
@@ -2792,6 +3785,13 @@
 
     // ========== OUVIR EVENTO PW-KILL ==========
     window.addEventListener('pw-kill', () => {
+        trackerSessionKills++;
+        trackerSessionBalls++;
+        if (trackerSessionSupply === 0) {
+            trackerSessionSupply = trackerSessionBalls * 100;
+        } else {
+            trackerSessionSupply += 100;
+        }
         if (!enabled || isCity() || busy) return;
         killCount++;
         GM_log('[AutoHunt] Kill! Total:', killCount);
@@ -2811,7 +3811,6 @@
                         selectedPokemon.splice(matchIdx, 1);
                         GM_setValue('piw_selectedPokemon', selectedPokemon);
                         renderSelectedTags();
-                        renderPokemonList(document.getElementById('piw-search')?.value || '');
                         GM_log('[AutoHunt] ' + slugLower + ' atingiu os 2 alvos! Removido.');
                     } else {
                         GM_log('[AutoHunt] ' + slugLower + ' atingiu os 2 alvos! (loop ativo, mantido na lista)');
@@ -2826,7 +3825,6 @@
     // ========== CHECK SWITCH ==========
     function checkSwitch() {
         if (isCity()) return;
-        if (shinyOnlyMode) return;
         const killTarget = GM_getValue('piw_killTarget', 100);
         const capTarget = GM_getValue('piw_captureTarget', 1);
         let shouldSwitch = false;
@@ -2858,6 +3856,15 @@
                 }
                 reopenBtn.classList.add('dock-btn', 'piw-dock-mode');
             }
+            try {
+                const sampleStyle = window.getComputedStyle(sampleDockBtn);
+                if (sampleStyle) {
+                    if (sampleStyle.width && sampleStyle.width !== 'auto') reopenBtn.style.width = sampleStyle.width;
+                    if (sampleStyle.height && sampleStyle.height !== 'auto') reopenBtn.style.height = sampleStyle.height;
+                    if (sampleStyle.margin) reopenBtn.style.margin = sampleStyle.margin;
+                    if (sampleStyle.borderRadius) reopenBtn.style.borderRadius = sampleStyle.borderRadius;
+                }
+            } catch(e) {}
             reopenBtn.style.visibility = 'visible';
             return true;
         }
@@ -2872,116 +3879,363 @@
     }, 100);
 
     // Polling regular para detectar rota e manter UI sincronizada
-    setInterval(() => { detectRoute(); attachReopenBtnToDock(); syncUI(); }, 2000);
+    setInterval(() => { detectRoute(); onRouteOrHuntChange(currentSlug); attachReopenBtnToDock(); persistHuntSession(); syncUI(); }, 2000);
 
-    // ========== WEBSOCKET INTERCEPTION ==========
+    // ========== PROCESSADOR CENTRAL DE MENSAGENS DO JOGO (100% AUTÔNOMO) ==========
+    let lastProcessedMsgStr = '';
+    let lastProcessedMsgTime = 0;
+
+    function processIncomingWsMessage(source, rawData) {
+        if (!rawData) return;
+        const rawStr = typeof rawData === 'string' ? rawData : JSON.stringify(rawData);
+        const now = Date.now();
+        if (rawStr === lastProcessedMsgStr && (now - lastProcessedMsgTime) < 400) {
+            return; // DEDUPLICAÇÃO: evita que o mesmo evento seja processado múltiplas vezes
+        }
+        lastProcessedMsgStr = rawStr;
+        lastProcessedMsgTime = now;
+
+        let data = rawData;
+        if (typeof rawData === 'string') {
+            try { data = JSON.parse(rawData); } catch(e) { return; }
+        }
+        if (!data || typeof data !== 'object') return;
+
+        // 0. Carregamento de lista de Pokémons do Jogador (evita contar XP/level-up do próprio time como captura)
+        if (data.type === 'pokes' && Array.isArray(data.list)) {
+            for (const p of data.list) {
+                if (p && p.id != null) knownPlayerPokeIds.add(String(p.id));
+            }
+            initialPokesLoaded = true;
+        }
+        if ((data.type === 'party' || data.type === 'team') && Array.isArray(data.list)) {
+            for (const p of data.list) {
+                if (p && p.id != null) knownPlayerPokeIds.add(String(p.id));
+            }
+        }
+
+        // 0.1. Mudança de rota via API HTTP
+        if (typeof source === 'string' && source.includes('/api/game/hunt-config')) {
+            const match = /[?&]slug=([^&]+)/.exec(source);
+            const slug = match ? decodeURIComponent(match[1]) : null;
+            if (slug) onRouteOrHuntChange(slug);
+        }
+
+        // 0.2. Preços de Shop / Loja
+        if (typeof source === 'string' && source.includes('/api/game/shop')) {
+            if (Array.isArray(data.balls)) {
+                for (const b of data.balls) {
+                    const price = Number(b.priceGold ?? b.price ?? b.cost);
+                    if (b && b.id != null && Number.isFinite(price) && price > 0) gameBallPrices[b.id] = price;
+                }
+            }
+            if (Array.isArray(data.items)) {
+                for (const it of data.items) {
+                    const price = Number(it.priceGold ?? it.price ?? it.cost);
+                    if (it && it.id != null && Number.isFinite(price) && price > 0) gamePotionPrices[it.id] = price;
+                }
+            }
+        }
+
+        // 1. Detecta slug da rota (field-init)
+        if (data.type === 'field-init') {
+            if (data.player && Array.isArray(data.player.team)) {
+                for (const p of data.player.team) {
+                    if (p && p.id != null) knownPlayerPokeIds.add(String(p.id));
+                }
+            }
+            if (data.slug) {
+                const isNewSlug = currentSlug !== data.slug;
+                onRouteOrHuntChange(data.slug);
+                currentSlug = data.slug;
+                currentRoute = data.name || data.slug;
+                if (huntSession) {
+                    huntSession.slug = data.slug;
+                    if (!huntSession.huntName || /cidade|centro/i.test(huntSession.huntName)) {
+                        huntSession.huntName = getDisplayHuntName() || currentRoute;
+                    }
+                }
+                if (isNewSlug) {
+                    resetObservedMoves();
+                }
+                if (isCity()) {
+                    huntingPokemon = '';
+                    GM_setValue('piw_huntingPokemon', '');
+                    resetObservedMoves();
+                    GM_log('[AutoHunt] Entrou em cidade.');
+                }
+                GM_log('[AutoHunt] Rota detectada:', currentRoute, '(' + currentSlug + ')');
+                syncUI();
+            }
+        }
+
+        // 2. Field Tick (contabiliza tempo ativo na hunt e detecta troca instantânea de espécies)
+        if (data.type === 'field' && Number.isFinite(Number(data.seq))) {
+            const now = Date.now();
+
+            // Identifica espécie dominante dos monstros na tela
+            let dominantSpeciesId = null;
+            if (Array.isArray(data.mobs) && data.mobs.length > 0) {
+                const counts = new Map();
+                for (const m of data.mobs) {
+                    if (m && m.speciesId != null) {
+                        counts.set(m.speciesId, (counts.get(m.speciesId) || 0) + 1);
+                    }
+                }
+                let max = null;
+                for (const [sId, count] of counts.entries()) {
+                    if (!max || count > max.count) max = { id: sId, count };
+                }
+                if (max) dominantSpeciesId = max.id;
+            }
+
+            if (dominantSpeciesId != null) {
+                const cr = creatures.find(c => (c.pokeId || c.id) == dominantSpeciesId);
+                const speciesName = cr ? cleanPokemonName(cr.name) : null;
+
+                if (huntSession.speciesId == null) {
+                    huntSession.speciesId = dominantSpeciesId;
+                    if (speciesName) {
+                        huntSession.huntName = speciesName;
+                        currentRoute = speciesName;
+                        currentSlug = speciesName.toLowerCase().replace(/\s+/g, '_');
+                        trackerActiveSlug = currentSlug;
+                    }
+                } else if (dominantSpeciesId !== huntSession.speciesId) {
+                    // TROCA REAL DE HUNT DETECTADA DIRETAMENTE NO CAMPO!
+                    const minAutoSaveMs = 10 * 60 * 1000; // 10 minutos
+                    if ((huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
+                        saveCurrentRouteSession(false);
+                    }
+                    const newName = speciesName || (currentRoute || currentSlug || 'Rota');
+                    const newSlug = newName.toLowerCase().replace(/\s+/g, '_');
+                    resetTrackerSession(newSlug);
+                    huntSession.speciesId = dominantSpeciesId;
+                    huntSession.huntName = newName;
+                    currentRoute = newName;
+                    currentSlug = newSlug;
+                    trackerActiveSlug = newSlug;
+                } else if (speciesName && huntSession.huntName !== speciesName) {
+                    huntSession.huntName = speciesName;
+                }
+            }
+
+            if (huntSession.lastTickAt !== null) {
+                const delta = now - huntSession.lastTickAt;
+                if (delta > 0 && delta < 5000) {
+                    huntSession.activeMs += delta;
+                }
+            }
+            huntSession.lastTickAt = now;
+        }
+
+        // Monitora inventário de poções em qualquer pacote (contagem 1x oficial exata)
+        trackInventoryPotions(data);
+
+        // 3. Abate Oficial no Campo (XP exata + Drops reais com itens e preços de catálogo)
+        if (data.type === 'field-kill') {
+            const currentMobName = cleanPokemonName(data.name || data.mob?.name || data.mobName || data.speciesName || huntingPokemon);
+            if (currentMobName && huntSession.huntName && !/cidade|centro|rota/i.test(huntSession.huntName)) {
+                const cleanMob = currentMobName.toLowerCase();
+                const cleanPrev = huntSession.huntName.toLowerCase();
+                if (cleanMob !== cleanPrev && !cleanPrev.includes(cleanMob) && !cleanMob.includes(cleanPrev)) {
+                    // O alvo mudou de forma definitiva!
+                    const minAutoSaveMs = 10 * 60 * 1000;
+                    if ((huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
+                        saveCurrentRouteSession(false);
+                    }
+                    resetTrackerSession(cleanMob);
+                    huntSession.huntName = currentMobName;
+                }
+            } else if (currentMobName && (!huntSession.huntName || /cidade|centro|rota/i.test(huntSession.huntName))) {
+                huntSession.huntName = currentMobName;
+            }
+
+            huntSession.kills += 1;
+            const xpGained = Number(data.xpGained ?? data.expGained ?? data.xp ?? data.exp ?? data.gainXp ?? data.heroXp ?? 0);
+            if (xpGained > 0) {
+                huntSession.xp += xpGained;
+            }
+
+            const lootList = data.loot || data.drops || data.items || [];
+            if (Array.isArray(lootList)) {
+                for (const d of lootList) {
+                    if (!d || typeof d !== 'object') continue;
+                    const itemId = Number(d.itemId ?? d.id ?? 0);
+                    const itInfo = gameItemsMap.get(itemId);
+                    const name = String(d.name || itInfo?.name || `Item ${itemId}`);
+                    const qty = Number(d.qty ?? d.count ?? d.amount ?? 1) || 1;
+                    const price = getItemNpcPrice(itemId, d.price ?? d.priceGold ?? d.npcPrice);
+                    const icon = d.icon || itInfo?.icon || '';
+
+                    const key = String(itemId || name);
+                    const entry = huntSession.drops.get(key) || { name, itemId, qty: 0, price, icon };
+                    entry.qty += qty;
+                    if (price > 0) entry.price = price;
+                    huntSession.drops.set(key, entry);
+                }
+            }
+
+            persistHuntSession();
+            window.dispatchEvent(new CustomEvent('pw-kill'));
+        }
+
+        // 4. Catálogo de Pokébolas e consumo de bolas
+        if (data.type === 'balls' && data.counts) {
+            if (Array.isArray(data.catalog)) {
+                for (const b of data.catalog) {
+                    const price = Number(b.priceGold ?? b.price ?? b.cost ?? b.gold ?? b.npcPrice);
+                    if (b && b.id != null && Number.isFinite(price) && price > 0) gameBallPrices[b.id] = price;
+                    if (b && b.id != null) gameBallCatalog[b.id] = { name: b.name, iconUrl: b.iconUrl };
+                }
+            }
+            if (lastKnownBallsCounts) {
+                let ballDiff = 0;
+                for (const [id, count] of Object.entries(lastKnownBallsCounts)) {
+                    const newCount = Number(data.counts[id] ?? 0);
+                    if (newCount < Number(count)) {
+                        const diff = Number(count) - newCount;
+                        ballDiff += diff;
+                        huntSession.ballsByType[id] = (huntSession.ballsByType[id] || 0) + diff;
+                    }
+                }
+                if (ballDiff > 0) {
+                    huntSession.balls += ballDiff;
+                    persistHuntSession();
+                }
+            }
+            lastKnownBallsCounts = { ...data.counts };
+        }
+
+        // 5. Capturas oficiais (apenas novos pokémons capturados, ignorando pokémons já existentes no time)
+        if (data.type === 'poke-delta' && data.poke && data.poke.id != null) {
+            const p = data.poke;
+            const pokeId = String(p.id);
+            if (initialPokesLoaded && !knownPlayerPokeIds.has(pokeId)) {
+                knownPlayerPokeIds.add(pokeId);
+                let val = Number(p.sellValue ?? p.priceNpc ?? 0);
+                if (!val || val <= 0) {
+                    const c = creatures.find(cr => (cr.pokeId || cr.id) === Number(p.speciesId) || cr.name?.toLowerCase() === p.name?.toLowerCase());
+                    val = Number(c?.sellValue ?? c?.priceNpc ?? 0);
+                }
+                huntSession.capturedPokes.push({
+                    id: pokeId,
+                    speciesId: p.speciesId,
+                    name: p.name,
+                    sellValue: val,
+                    at: Date.now()
+                });
+                huntSession.caps = huntSession.capturedPokes.length;
+                huntSession.capsValue = huntSession.capturedPokes.reduce((sum, item) => sum + (Number(item.sellValue) || 0), 0);
+                persistHuntSession();
+                GM_log('[AutoHunt] 🔴 Nova Captura registrada:', p.name, 'Valor: $' + val, 'Total sessão:', huntSession.caps);
+            } else {
+                knownPlayerPokeIds.add(pokeId);
+            }
+        }
+
+        // 6. Detecta captura bem-sucedida para troca de rota do AutoHunt
+        if (data.type === 'catch-result') {
+            if (data.success === true && enabled && !busy) {
+                captureCount++;
+                GM_log('[AutoHunt] Captura confirmada pelo servidor! Total alvo:', captureCount);
+                if (data.speciesName) {
+                    const nameLower = data.speciesName.toLowerCase();
+                    const matchIdx = selectedPokemon.findIndex(n => n.toLowerCase() === nameLower);
+                    if (matchIdx !== -1) {
+                        const killTgt = GM_getValue('piw_killTarget', 100);
+                        const capTgt = GM_getValue('piw_captureTarget', 1);
+                        const capKey = 'piw_captures_' + nameLower;
+                        const prevCap = GM_getValue(capKey, 0);
+                        GM_setValue(capKey, prevCap + 1);
+                        const killKey = 'piw_kills_' + nameLower;
+                        const totalKills = GM_getValue(killKey, 0);
+                        if ((prevCap + 1) >= capTgt && totalKills >= killTgt) {
+                            if (!loopMode) {
+                                selectedPokemon.splice(matchIdx, 1);
+                                GM_setValue('piw_selectedPokemon', selectedPokemon);
+                                renderSelectedTags();
+                                GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! Removido.');
+                            } else {
+                                GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! (loop ativo, mantido na lista)');
+                            }
+                        }
+                    }
+                }
+                syncUI();
+                checkSwitch();
+            }
+        }
+
+        // 7. Detecta golpes tomados
+        const hit = extractCombatHit(data);
+        if (hit) {
+            observedMovesMap.set(hit.name.toLowerCase(), hit);
+            if (movesWindowVisible) renderMovesWindow();
+        }
+
+        // 8. Detecta atualização de pokémons (líder + stats + shiny + depot)
+        if (data.type === 'pokes' || data.type === 'depot' || data.type === 'storage' || data.type === 'box' || data.type === 'poke-update' || data.type === 'party' || data.type === 'level-up') {
+            const list = data.list || data.pokes || data.pokemon || data.storage || data.depot || (data.poke ? [data.poke] : null);
+            if (list && Array.isArray(list)) {
+                detectShinyFromPokes(list);
+                updateLeader(list);
+            }
+        }
+    }
+
+    // Escuta mensagens interceptadas do Proxy da página
+    window.addEventListener('message', (event) => {
+        if (event.source === window && event.data && event.data.__piwHelper) {
+            processIncomingWsMessage(event.data.source, event.data.data);
+        }
+    });
+
+    // ========== WEBSOCKET INTERCEPTION GLOBAL ==========
     const origSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function(data) {
         try {
-            const parsed = JSON.parse(data);
-            if (parsed && parsed.type) {
-                if (!socket) {
-                    socket = this;
-                    setTimeout(() => {
-                        try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
-                    }, 400);
-                } else {
-                    socket = this;
-                }
-            }
+            socket = this;
         } catch(e) {}
         return origSend.call(this, data);
     };
 
-    // Intercepta WebSocket para detectar capturas, slug da rota e pokémon líder
+    const origAddEventListener = WebSocket.prototype.addEventListener;
+    WebSocket.prototype.addEventListener = function(type, listener, options) {
+        socket = this;
+        if (type === 'message' && typeof listener === 'function') {
+            const wrappedListener = function(event) {
+                try {
+                    processIncomingWsMessage('ws', event.data);
+                } catch(e) {}
+                return listener.call(this, event);
+            };
+            return origAddEventListener.call(this, type, wrappedListener, options);
+        }
+        return origAddEventListener.call(this, type, listener, options);
+    };
+
     const origOnMessage = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'onmessage');
     Object.defineProperty(WebSocket.prototype, 'onmessage', {
         get: function() { return origOnMessage.get.call(this); },
         set: function(handler) {
+            socket = this;
             const wrappedHandler = function(event) {
                 try {
-                    const data = JSON.parse(event.data);
-                    // Detecta slug da rota (field-init)
-                    if (data && data.type === 'field-init' && data.slug) {
-                        const wasCity = isCity();
-                        const isNewSlug = currentSlug !== data.slug;
-                        currentSlug = data.slug;
-                        currentRoute = data.name || data.slug;
-                        if (isNewSlug) {
-                            resetObservedMoves();
-                        }
-                        // Se entrou em cidade, limpa pokémon caçado e reseta golpes tomados (preserva abates/capturas)
-                        if (isCity()) {
-                            huntingPokemon = '';
-                            GM_setValue('piw_huntingPokemon', '');
-                            resetObservedMoves();
-                            GM_log('[AutoHunt] Entrou em cidade.');
-                        }
-                        GM_log('[AutoHunt] Rota detectada:', currentRoute, '(' + currentSlug + ')');
-                        syncUI();
-                    }
-                    // Detecta captura bem-sucedida
-                    if (data && data.type === 'catch-result') {
-                        if (data.success === true && enabled) {
-                            if (!busy) {
-                                captureCount++;
-                                GM_log('[AutoHunt] Captura! Total:', captureCount);
-                                if (data.speciesName) {
-                                    const nameLower = data.speciesName.toLowerCase();
-                                    const matchIdx = selectedPokemon.findIndex(n => n.toLowerCase() === nameLower);
-                                    if (matchIdx !== -1) {
-                                        const killTgt = GM_getValue('piw_killTarget', 100);
-                                        const capTgt = GM_getValue('piw_captureTarget', 1);
-                                        const capKey = 'piw_captures_' + nameLower;
-                                        const prevCap = GM_getValue(capKey, 0);
-                                        GM_setValue(capKey, prevCap + 1);
-                                        const killKey = 'piw_kills_' + nameLower;
-                                        const totalKills = GM_getValue(killKey, 0);
-                                        if ((prevCap + 1) >= capTgt && totalKills >= killTgt) {
-                                            if (!loopMode) {
-                                                selectedPokemon.splice(matchIdx, 1);
-                                                GM_setValue('piw_selectedPokemon', selectedPokemon);
-                                                renderSelectedTags();
-                                                renderPokemonList(document.getElementById('piw-search')?.value || '');
-                                                GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! Removido.');
-                                            } else {
-                                                GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! (loop ativo, mantido na lista)');
-                                            }
-                                        }
-                                    }
-                                }
-                                syncUI();
-                                checkSwitch();
-                            }
-                        } else {
-                            GM_log('[AutoHunt] Captura falhou');
-                        }
-                    }
-                    if (data) {
-                        const hit = extractCombatHit(data);
-                        if (hit) {
-                            observedMovesMap.set(hit.name.toLowerCase(), hit);
-                            if (movesWindowVisible) renderMovesWindow();
-                        }
-                    }
-                    // Detecta lista/atualização de pokémons (líder + stats + shiny + depot)
-                    if (data && (data.type === 'pokes' || data.type === 'depot' || data.type === 'storage' || data.type === 'box' || data.type === 'poke-update' || data.type === 'party' || data.type === 'level-up')) {
-                        const list = data.list || data.pokes || data.pokemon || data.storage || data.depot || (data.poke ? [data.poke] : null);
-                        if (list && Array.isArray(list)) {
-                            detectShinyFromPokes(list);
-                            updateLeader(list);
-                        }
-                    }
-                } catch(e) {
-                    GM_log('[AutoHunt] Erro no WS onmessage:', e);
-                }
+                    processIncomingWsMessage('ws', event.data);
+                } catch(e) {}
                 if (handler) handler.call(this, event);
             };
             origOnMessage.set.call(this, wrappedHandler);
         }
     });
 
+    function syncStatsFromDOM() {
+        if (isCity()) return;
+    }
+
     setInterval(() => {
+        syncStatsFromDOM();
         const domLeader = getLeaderFromDOM();
         if (domLeader) {
             const hasEvolved = leaderName && domLeader.name.toLowerCase() !== leaderName.toLowerCase();
@@ -3008,6 +4262,9 @@
                 }
             }
         }
+        if (!isCity() && socket && socket.readyState === WebSocket.OPEN) {
+            try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
+        }
     }, 1500);
 
     let sessionShinyCount = 0;
@@ -3033,11 +4290,6 @@
                 GM_log('[AutoHunt] ✨ NOVO SHINY CAPTURADO NESTA SESSÃO!', shiny.name, '(Total sessão:', sessionShinyCount + ')');
             }
             syncUI();
-            // Se está no modo shiny-only, reseta contadores e troca
-            if (shinyOnlyMode && !busy) {
-                GM_log('[AutoHunt] Modo shiny-only: trocando de rota...');
-                doSwitch();
-            }
         }
 
         // Atualiza a lista anterior
@@ -3123,7 +4375,6 @@
             syncUI();
             if (changed) {
                 GM_log('[AutoHunt] Líder detectado:', leaderName, '(' + leaderTypes.join('/') + ') Lv', leaderLevel);
-                renderPokemonList(document.getElementById('piw-search')?.value || '');
             }
         }
     }
@@ -3132,11 +4383,11 @@
     async function navigateToPokemon(pokemonName) {
         try {
             const mapBtn = document.querySelector('button.dock-btn[data-guide="dock-map"]');
-            if (!mapBtn) return;
+            if (!mapBtn) return false;
             mapBtn.click();
             await sleep(800);
             const mapOverlay = document.querySelector('.map-overlay');
-            if (!mapOverlay) return;
+            if (!mapOverlay) return false;
             await sleep(400);
             const routeData = routes.find(r => r.name?.toLowerCase() === pokemonName.toLowerCase());
             if (routeData && routeData.area) {
@@ -3151,7 +4402,7 @@
                     }
                 }
             }
-            const markers = document.querySelectorAll('button.hunt-marker');
+            let markers = document.querySelectorAll('button.hunt-marker');
             for (const marker of markers) {
                 const nameEl = marker.querySelector('.hunt-name');
                 if (!nameEl) continue;
@@ -3159,10 +4410,109 @@
                 if (name.toLowerCase() === pokemonName.toLowerCase()) {
                     resetObservedMoves();
                     marker.click();
-                    return;
+                    return true;
+                }
+            }
+
+            // Se não encontrou na aba atual, varre as outras abas do mapa (ex: Outland / Kanto)
+            const areaTabs = document.querySelectorAll('button.map-area');
+            for (const tab of areaTabs) {
+                if (tab.classList.contains('active')) continue;
+                tab.click();
+                await sleep(500);
+                markers = document.querySelectorAll('button.hunt-marker');
+                for (const marker of markers) {
+                    const nameEl = marker.querySelector('.hunt-name');
+                    if (!nameEl) continue;
+                    const name = nameEl.textContent.trim();
+                    if (name.toLowerCase() === pokemonName.toLowerCase()) {
+                        resetObservedMoves();
+                        marker.click();
+                        return true;
+                    }
                 }
             }
         } catch(e) { GM_log('[AutoHunt] navigateToPokemon error:', e); }
+        return false;
+    }
+
+    // ========== PULAR PARA PRÓXIMO POKÉMON ==========
+    async function skipToNextHunt() {
+        if (busy) return;
+        if (selectedPokemon.length === 0) {
+            GM_log('[AutoHunt] Pular: Nenhum pokémon selecionado na lista.');
+            return;
+        }
+
+        const curName = (huntingPokemon || currentRoute || '').toLowerCase();
+        let curIdx = selectedPokemon.findIndex(p => p.toLowerCase() === curName);
+        if (curIdx === -1) curIdx = 0;
+
+        let nextPokemon = '';
+
+        if (!loopMode) {
+            // Remove o pokémon atual da lista igual ao finalizar o alvo
+            const removedName = selectedPokemon.splice(curIdx, 1)[0];
+            GM_setValue('piw_selectedPokemon', selectedPokemon);
+            renderSelectedTags();
+            GM_log('[AutoHunt] ⏭️ ' + removedName + ' pulado e removido da lista.');
+
+            // Se a lista esgotou após a remoção
+            if (selectedPokemon.length === 0) {
+                GM_log('[AutoHunt] Lista de caça finalizada, voltando pra cidade...');
+                huntingPokemon = '';
+                GM_setValue('piw_huntingPokemon', '');
+                killCount = 0;
+                captureCount = 0;
+                resetObservedMoves();
+                const cityBtn = document.querySelector('button.dock-btn[data-guide="dock-home"], button.dock-btn[data-guide*="home"], button.dock-btn[data-guide*="city"], [class*="dock"] [class*="home"], [class*="dock"] [class*="city"]');
+                if (cityBtn) cityBtn.click();
+                enabled = false;
+                GM_setValue('piw_enabled', false);
+                syncUI();
+                return;
+            }
+
+            // O próximo é o que ocupou a posição curIdx (ou o primeiro)
+            nextPokemon = selectedPokemon[curIdx % selectedPokemon.length];
+        } else {
+            // Em Modo Loop: não remove da lista, apenas avança para o próximo
+            if (selectedPokemon.length > 1) {
+                const nextIdx = (curIdx + 1) % selectedPokemon.length;
+                nextPokemon = selectedPokemon[nextIdx];
+            } else {
+                nextPokemon = selectedPokemon[0];
+            }
+            GM_log('[AutoHunt] ⏭️ Pulando caça (Modo Loop) para:', nextPokemon);
+        }
+
+        busy = true;
+        syncUI();
+
+        try {
+            killCount = 0;
+            captureCount = 0;
+            huntingPokemon = nextPokemon;
+            const slug = nextPokemon.toLowerCase().replace(/\s+/g, '-');
+            GM_setValue('piw_kills_' + slug, 0);
+            GM_setValue('piw_captures_' + slug, 0);
+            resetObservedMoves();
+
+            if (!enabled) {
+                enabled = true;
+                GM_setValue('piw_enabled', true);
+            }
+
+            const ok = await navigateToPokemon(nextPokemon);
+            if (ok) {
+                currentRoute = nextPokemon;
+            }
+        } catch(e) {
+            GM_log('[AutoHunt] Erro ao pular hunt:', e);
+        } finally {
+            busy = false;
+            syncUI();
+        }
     }
 
     // ========== TROCAR DE ROTA ==========
@@ -3321,11 +4671,21 @@
                 buildPanel();
                 createInfoWindowDOM();
                 createMovesWindowDOM();
+                createTrackerWindowDOM();
+                if (trackerWindowVisible) {
+                    renderTrackerWindow();
+                    if (!trackerInterval) {
+                        trackerInterval = setInterval(() => {
+                            if (trackerWindowVisible && trackerActiveTab === 'session') {
+                                renderTrackerWindow();
+                            }
+                        }, 1000);
+                    }
+                }
                 syncUI();
                 setTimeout(async () => {
                     await fetchGameData();
                     syncUI();
-                    renderPokemonList(document.getElementById('piw-search')?.value || '');
                 }, 500);
                 setTimeout(() => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -3342,5 +4702,5 @@
     else
         init();
 
-    GM_log('[Poke Helper] Carregado v0.75.0.');
+    GM_log('[Poke Helper] Carregado v2.1.0.');
 })();
