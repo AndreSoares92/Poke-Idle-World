@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.7.2
+// @version      1.9.1
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -422,28 +422,51 @@
             .trim();
     }
 
-    function getLeaderStatsFromDOM() {
-        const activeMon = document.querySelector(".phud-party .phud-mon.active, .phud-party .phud-mon");
-        if (!activeMon) return null;
-        const rawName = activeMon.querySelector(".phud-name")?.textContent || "";
-        const name = cleanPokemonName(rawName);
-        const lvMatch = (activeMon.querySelector(".phud-lv")?.textContent || "").match(/\d+/);
-        const level = lvMatch ? Number(lvMatch[0]) : null;
+    function getPartyMonStatsFromDOM(slotIdx, name) {
+        const partyMons = document.querySelectorAll(".phud-party .phud-mon");
+        let targetMon = null;
+        if (typeof slotIdx === 'number' && slotIdx >= 0 && partyMons[slotIdx]) {
+            targetMon = partyMons[slotIdx];
+        } else if (name) {
+            const cleanTarget = cleanPokemonName(name).toLowerCase();
+            for (const mon of partyMons) {
+                const rawName = mon.querySelector(".phud-name")?.textContent || "";
+                if (cleanPokemonName(rawName).toLowerCase() === cleanTarget) {
+                    targetMon = mon;
+                    break;
+                }
+            }
+        }
+        if (!targetMon) {
+            targetMon = document.querySelector(".phud-party .phud-mon.active, .phud-party .phud-mon");
+        }
+        if (!targetMon) return null;
 
-        const hpTxt = activeMon.querySelector(".sbar-hp .sbar-txt")?.textContent?.trim() || "";
+        const hpTxt = targetMon.querySelector(".sbar-hp .sbar-txt")?.textContent?.trim() || "";
         const hpParts = hpTxt.split('/').map(v => Number(v.replace(/\D/g, '')));
         const hpCurrent = hpParts[0];
         const hpMax = hpParts[1];
 
-        const expTxt = activeMon.querySelector(".sbar-exp .sbar-txt")?.textContent?.trim() || "";
+        const expTxt = targetMon.querySelector(".sbar-exp .sbar-txt")?.textContent?.trim() || "";
         const expMatch = expTxt.match(/(\d+(?:\.\d+)?)\s*%/);
-        const expPct = expMatch ? parseFloat(expMatch[1]) : null;
+        let expPct = expMatch ? parseFloat(expMatch[1]) : null;
 
-        return { name, level, hpCurrent, hpMax, expPct };
+        if (expPct === null && expTxt.includes('/')) {
+            const expParts = expTxt.split('/').map(v => Number(v.replace(/\D/g, '')));
+            if (expParts.length === 2 && expParts[1] > 0) {
+                expPct = (expParts[0] / expParts[1]) * 100;
+            }
+        }
+
+        return { hpCurrent, hpMax, expPct };
     }
 
     // Estado do líder e janela flutuante
     let currentLeaderData = null;
+    let currentPartyList = [];
+    let allPokesList = [];
+    let inspectedPokemon = null;
+    let isPartySlotPinned = false;
     let infoWindowVisible = GM_getValue('piw_info_win_visible', false);
 
     let leaderName = '';
@@ -507,12 +530,12 @@
 .piw-panel { padding-top: 0 !important; }
 .piw-panel h3 {
     margin: 0 0 8px; padding: 10px 14px; font-size: 14px; color: #fff; font-weight: 700;
-    letter-spacing: .4px; cursor: move; display: flex; justify-content: space-between;
+    letter-spacing: .4px; cursor: grab; display: flex; justify-content: space-between;
     align-items: center; user-select: none;
     background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
     border-bottom: 1px solid rgba(132,144,255,.22);
 }
-.piw-panel h3:active { cursor: move; }
+.piw-panel h3:active { cursor: grabbing; }
 
 .piw-card {
     background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.07);
@@ -688,8 +711,9 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 18px; border-bottom: 1px solid rgba(132,144,255,.22);
     background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
-    cursor: move; user-select: none;
+    cursor: grab; user-select: none;
 }
+.piw-modal-header:active { cursor: grabbing; }
 .piw-modal-header h3 { margin: 0; font-size: 15px; color: #fff; font-weight: 700; letter-spacing: .4px; user-select: none; flex: 1; }
 .piw-modal-header .piw-modal-close {
     cursor: pointer; color: #a5b4fc; font-size: 18px; background: none;
@@ -803,7 +827,7 @@
 }
 
 #piw-info-window {
-    position: fixed; z-index: 2147483000; width: 340px;
+    position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
     display: none; flex-direction: column;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 12px;
@@ -816,15 +840,24 @@
 #piw-info-window * { box-sizing: border-box; }
 .piw-iw-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px; cursor: move; border-bottom: 1px solid rgba(132,144,255,.22);
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(132,144,255,.22);
     background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
     font-weight: 700; font-size: 13px; letter-spacing: .4px;
 }
+.piw-iw-head:active { cursor: grabbing; }
 .piw-iw-title { display: flex; align-items: center; gap: 8px; }
 .piw-iw-dot { width: 8px; height: 8px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 10px #a78bfa; }
 .piw-iw-close { cursor: pointer; color: #a5b4fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-iw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
 .piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; }
+.piw-iw-party-bar { display: flex; gap: 6px; padding: 6px 8px; margin-bottom: 8px; background: rgba(10,12,20,.75); border: 1px solid rgba(132,144,255,.2); border-radius: 10px; overflow-x: auto; align-items: center; justify-content: center; }
+.piw-iw-party-slot { position: relative; width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; flex-shrink: 0; }
+.piw-iw-party-slot:hover { background: rgba(132,144,255,.15); border-color: rgba(132,144,255,.5); transform: translateY(-2px); }
+.piw-iw-party-slot.leader { border-color: rgba(255,213,74,.5); }
+.piw-iw-party-slot.inspected { border-color: #a78bfa !important; box-shadow: 0 0 10px rgba(167,139,250,.6) !important; background: rgba(167,139,250,.2) !important; }
+.piw-iw-party-slot img { width: 28px; height: 28px; object-fit: contain; }
+.piw-iw-party-slot .piw-slot-lv { position: absolute; bottom: 0px; right: 2px; font-size: 8px; font-weight: 700; color: #cbd5e1; text-shadow: 0 1px 2px #000; }
+.piw-iw-party-slot .piw-slot-leader { position: absolute; top: -4px; left: -2px; font-size: 10px; line-height: 1; }
 
 .piw-iw-hero { display: flex; gap: 12px; align-items: center; }
 .piw-iw-sprite { width: 56px; height: 56px; image-rendering: pixelated; flex: none; object-fit: contain; background: radial-gradient(circle at 50% 40%, rgba(139,124,250,.25), rgba(139,124,250,.05)); border-radius: 10px; }
@@ -878,35 +911,54 @@
 #piw-moves-window * { box-sizing: border-box; }
 .piw-mw-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px; cursor: move; border-bottom: 1px solid rgba(132,144,255,.22);
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(132,144,255,.22);
     background: linear-gradient(135deg, rgba(99,102,241,.38), rgba(76,60,200,.22));
     font-weight: 700; font-size: 13px; letter-spacing: .4px;
 }
+.piw-mw-head:active { cursor: grabbing; }
 .piw-mw-title { display: flex; align-items: center; gap: 8px; }
 .piw-mw-dot { width: 8px; height: 8px; border-radius: 50%; background: #60a5fa; box-shadow: 0 0 10px #60a5fa; }
 .piw-mw-close { cursor: pointer; color: #a5b4fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-mw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05); }
+.piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
+.piw-mw-body { padding: 10px 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
 
-.piw-mw-body { padding: 10px 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; scrollbar-width: thin; scrollbar-color: rgba(132,144,255,.4) rgba(255,255,255,.05); }
-
-.piw-iw-body::-webkit-scrollbar,
-.piw-mw-body::-webkit-scrollbar {
-    width: 6px;
+/* Scrollbars com gradiente roxo/índigo no padrão do script */
+.piw-panel *, .piw-panel-inner, #piw-info-window *, #piw-moves-window *, #piw-pokedex-overlay *, .piw-modal * {
+    scrollbar-width: thin !important;
+    scrollbar-color: rgba(132, 144, 255, 0.5) rgba(20, 24, 38, 0.4) !important;
 }
-.piw-iw-body::-webkit-scrollbar-track,
-.piw-mw-body::-webkit-scrollbar-track {
-    background: rgba(255,255,255,.04);
-    border-radius: 99px;
+.piw-panel *::-webkit-scrollbar, .piw-panel-inner::-webkit-scrollbar,
+#piw-info-window *::-webkit-scrollbar,
+#piw-moves-window *::-webkit-scrollbar,
+#piw-pokedex-overlay *::-webkit-scrollbar,
+.piw-modal *::-webkit-scrollbar {
+    width: 6px !important;
+    height: 6px !important;
 }
-.piw-iw-body::-webkit-scrollbar-thumb,
-.piw-mw-body::-webkit-scrollbar-thumb {
-    background: rgba(132,144,255,.38);
-    border-radius: 99px;
+.piw-panel *::-webkit-scrollbar-track, .piw-panel-inner::-webkit-scrollbar-track,
+#piw-info-window *::-webkit-scrollbar-track,
+#piw-moves-window *::-webkit-scrollbar-track,
+#piw-pokedex-overlay *::-webkit-scrollbar-track,
+.piw-modal *::-webkit-scrollbar-track {
+    background: rgba(20, 24, 38, 0.5) !important;
+    border-radius: 99px !important;
 }
-.piw-iw-body::-webkit-scrollbar-thumb:hover,
-.piw-mw-body::-webkit-scrollbar-thumb:hover {
-    background: rgba(132,144,255,.65);
+.piw-panel *::-webkit-scrollbar-thumb, .piw-panel-inner::-webkit-scrollbar-thumb,
+#piw-info-window *::-webkit-scrollbar-thumb,
+#piw-moves-window *::-webkit-scrollbar-thumb,
+#piw-pokedex-overlay *::-webkit-scrollbar-thumb,
+.piw-modal *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #6366f1, #8b5cf6) !important;
+    border-radius: 99px !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+.piw-panel *::-webkit-scrollbar-thumb:hover, .piw-panel-inner::-webkit-scrollbar-thumb:hover,
+#piw-info-window *::-webkit-scrollbar-thumb:hover,
+#piw-moves-window *::-webkit-scrollbar-thumb:hover,
+#piw-pokedex-overlay *::-webkit-scrollbar-thumb:hover,
+.piw-modal *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #818cf8, #a78bfa) !important;
 }
 
 .piw-win-resize {
@@ -1432,7 +1484,7 @@
         makeDraggable(win, head, 'piw_info_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        makeResizable(win, resizeHandle, 'piw_info_win_size', 260, 180);
+        makeResizable(win, resizeHandle, 'piw_info_win_size', 340, 200);
     }
 
     function closeInfoWindow() {
@@ -1488,7 +1540,7 @@
             }
         }
 
-        let leader = currentLeaderData;
+        let leader = inspectedPokemon || currentLeaderData;
         if (!leader && leaderName) {
             const c = creatures.find(c => c.name?.toLowerCase() === leaderName.toLowerCase());
             if (c) {
@@ -1528,13 +1580,14 @@
             return;
         }
 
+        const isInspectingNonLeader = Boolean(inspectedPokemon && currentLeaderData && inspectedPokemon.id !== currentLeaderData.id);
         const name = cleanPokemonName(leader?.name || leaderName || '?');
-        const level = leaderLevel || leader?.level || 1;
+        const level = isInspectingNonLeader ? (leader.level || 1) : (leaderLevel || leader?.level || 1);
         const currentCreature = creatures.find(c => c.name?.toLowerCase() === name.toLowerCase());
         const speciesId = currentCreature?.pokeId || currentCreature?.id || leader.speciesId || leader.pokeId || leaderPokeId || 0;
 
         const types = [leader.type1, leader.type2].filter(Boolean);
-        if (types.length === 0 && leaderTypes.length > 0) types.push(...leaderTypes);
+        if (types.length === 0 && !isInspectingNonLeader && leaderTypes.length > 0) types.push(...leaderTypes);
 
         const isShiny = Boolean(leader.shiny);
         const sprites = getPokemonSpriteUrls(speciesId, isShiny);
@@ -1545,14 +1598,48 @@
         const power = leader.power ?? '?';
         const sellVal = leader.sellValue ?? '?';
 
-        const domData = getLeaderStatsFromDOM();
+        let calculatedExpPct = null;
+        if (leader.expPct != null) {
+            calculatedExpPct = Number(leader.expPct);
+        } else if (leader.exp != null && (leader.maxExp != null || leader.expNext != null || leader.expNeeded != null)) {
+            const maxE = leader.maxExp || leader.expNext || leader.expNeeded;
+            if (maxE > 0) calculatedExpPct = (Number(leader.exp) / Number(maxE)) * 100;
+        }
+
+        const slotIdx = currentPartyList ? currentPartyList.findIndex(p => p.id === leader.id) : -1;
+        const domData = getPartyMonStatsFromDOM(slotIdx >= 0 ? slotIdx : null, leader.name);
         const hpCurrent = leader.hp ?? domData?.hpCurrent ?? '?';
         const hpMax = leader.maxHp ?? domData?.hpMax ?? '?';
-        const expPct = leader.expPct ?? domData?.expPct ?? null;
+        const expPct = calculatedExpPct ?? domData?.expPct ?? leader.expPct ?? null;
 
         const baseStats = getBaseStatsForSpecies(speciesId);
-        const levelForIV = leader.level || leaderLevel || 1;
+        const levelForIV = leader.level || level || 1;
         const calculatedIVs = computeExactIVs({ ...leader, speciesId, level: levelForIV });
+
+        let partyBarHtml = '';
+        if (currentPartyList && currentPartyList.length > 0) {
+            partyBarHtml = `
+                <div class="piw-iw-party-bar" title="Passe o mouse ou clique para ver os dados de outro Pokémon da equipe">
+                    ${currentPartyList.map((p, idx) => {
+                        const pName = cleanPokemonName(p.name);
+                        const pSpecies = p.speciesId || p.pokeId || (() => {
+                            const c = creatures.find(cr => cr.name?.toLowerCase() === pName.toLowerCase());
+                            return c?.pokeId || 0;
+                        })();
+                        const isLeaderMon = p.leader || (currentLeaderData && p.id === currentLeaderData.id);
+                        const isSelectedMon = inspectedPokemon ? (p.id === inspectedPokemon.id) : isLeaderMon;
+                        const iconUrl = getPokemonImageUrl(pSpecies, pName);
+                        return `
+                            <div class="piw-iw-party-slot${isLeaderMon ? ' leader' : ''}${isSelectedMon ? ' inspected' : ''}" data-idx="${idx}" title="${pName} (Nv. ${p.level || '?'})${isLeaderMon ? ' - Líder Ativo' : ''}">
+                                ${isLeaderMon ? '<span class="piw-slot-leader">⭐</span>' : ''}
+                                <img src="${iconUrl}" onerror="this.style.display='none'">
+                                <span class="piw-slot-lv">${p.level || ''}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
 
         let qualityChipHtml = `<span class="piw-iw-chip">Quality <b>${quality ?? '?'}</b></span>`;
         if (qTier && quality) {
@@ -1677,6 +1764,7 @@
         }
 
         body.innerHTML = `
+            ${partyBarHtml}
             <div class="piw-iw-card">
                 ${heroHtml}
                 ${barsHtml}
@@ -1685,6 +1773,24 @@
             ${effSectionHtml}
             ${ivsSectionHtml}
         `;
+
+        body.querySelectorAll('.piw-iw-party-slot').forEach(slot => {
+            slot.addEventListener('click', () => {
+                const idx = parseInt(slot.dataset.idx, 10);
+                if (currentPartyList && currentPartyList[idx]) {
+                    const selected = currentPartyList[idx];
+                    const isLeaderMon = selected.leader || (currentLeaderData && selected.id === currentLeaderData.id);
+                    if (isLeaderMon) {
+                        inspectedPokemon = null;
+                        isPartySlotPinned = false;
+                    } else {
+                        inspectedPokemon = selected;
+                        isPartySlotPinned = true;
+                    }
+                    renderInfoWindow();
+                }
+            });
+        });
     }
 
     // ========== JANELA DE MOVES ==========
@@ -2891,8 +2997,9 @@
 
     // Atualiza o pokémon líder a partir da lista
     function updateLeader(pokeList) {
-        const team = pokeList.filter(p => p.team).sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
-        const leader = team.find(p => p.leader) ?? team[0];
+        allPokesList = pokeList;
+        currentPartyList = pokeList.filter(p => p.team).sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
+        const leader = currentPartyList.find(p => p.leader) ?? currentPartyList[0];
         if (leader) {
             currentLeaderData = leader;
             const newName = cleanPokemonName(leader.name);
