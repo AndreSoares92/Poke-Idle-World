@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
+// @version      2.0.0
 // @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -1999,6 +1999,102 @@
                 GM_log('[AutoHunt] Clique na casinha/cidade detectado!');
             }
         }
+        const depotBtn = e.target.closest('[class*="depot"], [class*="storage"], [class*="box"], [class*="pc"], button[data-guide*="depot"], button[data-guide*="storage"]');
+        if (depotBtn) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
+            }
+        }
+    }, true);
+
+    let hoveredDepotMonEl = null;
+
+    function findPokemonFromElement(target) {
+        if (!target || target === document.body || target === document.documentElement) return null;
+        if (target.closest('#piw-panel, #piw-info-window, #piw-moves-window, .piw-modal, #piw-pokedex-overlay')) return null;
+
+        const monEl = target.closest('[data-poke-id], [data-id], [class*="mon"], [class*="poke"], [class*="storage"], [class*="depot"], [class*="box"], [class*="slot"], [class*="item"]');
+        if (!monEl) return null;
+        if (monEl.closest('button.dock-btn, .header, .nav')) return null;
+
+        const dataId = monEl.getAttribute('data-id') || monEl.getAttribute('data-poke-id') || monEl.getAttribute('data-mon-id') || monEl.dataset?.id;
+        if (dataId && allPokesList && allPokesList.length > 0) {
+            const found = allPokesList.find(p => String(p.id) === String(dataId) || String(p._id) === String(dataId) || String(p.pokeId) === String(dataId));
+            if (found) return { mon: found, element: monEl };
+        }
+
+        const nameEl = monEl.querySelector('[class*="name"], .title, b, strong, .label');
+        const imgEl = monEl.querySelector('img');
+        const rawName = nameEl?.textContent || imgEl?.alt || imgEl?.title || monEl.getAttribute('title') || monEl.getAttribute('aria-label') || '';
+        const cleanName = cleanPokemonName(rawName);
+
+        if (!cleanName) return null;
+
+        const lvEl = monEl.querySelector('[class*="lv"], [class*="level"]');
+        const lvMatch = (lvEl?.textContent || monEl.textContent || monEl.getAttribute('title') || '').match(/lv\.?\s*(\d+)/i);
+        const level = lvMatch ? Number(lvMatch[1]) : null;
+
+        if (allPokesList && allPokesList.length > 0) {
+            const matching = allPokesList.filter(p => cleanPokemonName(p.name).toLowerCase() === cleanName.toLowerCase());
+            if (matching.length === 1) {
+                return { mon: matching[0], element: monEl };
+            }
+            if (matching.length > 1) {
+                if (level !== null) {
+                    const matchLv = matching.find(p => Number(p.level || p.lvl) === level);
+                    if (matchLv) return { mon: matchLv, element: monEl };
+                }
+                return { mon: matching[0], element: monEl };
+            }
+        }
+
+        if (creatures && creatures.length > 0) {
+            const c = creatures.find(cr => cr.name?.toLowerCase() === cleanName.toLowerCase());
+            if (c) {
+                return {
+                    mon: {
+                        name: c.name,
+                        speciesId: c.pokeId || c.id,
+                        level: level || 1,
+                        type1: c.type1,
+                        type2: c.type2,
+                        quality: 1
+                    },
+                    element: monEl
+                };
+            }
+        }
+
+        return null;
+    }
+
+    // Escuta hover em pokémons no Depot/Storage/Box/HUD
+    document.addEventListener('mouseover', (e) => {
+        const found = findPokemonFromElement(e.target);
+        if (found) {
+            if (hoveredDepotMonEl !== found.element) {
+                hoveredDepotMonEl = found.element;
+                inspectedPokemon = found.mon;
+                if (infoWindowVisible) {
+                    renderInfoWindow();
+                }
+            }
+        }
+    }, true);
+
+    document.addEventListener('mouseout', (e) => {
+        if (hoveredDepotMonEl && (!e.relatedTarget || !hoveredDepotMonEl.contains(e.relatedTarget))) {
+            const movingToOtherMon = findPokemonFromElement(e.relatedTarget);
+            if (!movingToOtherMon) {
+                hoveredDepotMonEl = null;
+                if (!isPartySlotPinned) {
+                    inspectedPokemon = null;
+                    if (infoWindowVisible) {
+                        renderInfoWindow();
+                    }
+                }
+            }
+        }
     }, true);
 
     window.addEventListener('hashchange', () => {
@@ -2868,9 +2964,9 @@
                             if (movesWindowVisible) renderMovesWindow();
                         }
                     }
-                    // Detecta lista/atualização de pokémons (líder + stats + shiny)
-                    if (data && (data.type === 'pokes' || data.type === 'poke-update' || data.type === 'party' || data.type === 'level-up')) {
-                        const list = data.list || data.pokes || (data.poke ? [data.poke] : null);
+                    // Detecta lista/atualização de pokémons (líder + stats + shiny + depot)
+                    if (data && (data.type === 'pokes' || data.type === 'depot' || data.type === 'storage' || data.type === 'box' || data.type === 'poke-update' || data.type === 'party' || data.type === 'level-up')) {
+                        const list = data.list || data.pokes || data.pokemon || data.storage || data.depot || (data.poke ? [data.poke] : null);
                         if (list && Array.isArray(list)) {
                             detectShinyFromPokes(list);
                             updateLeader(list);
@@ -2997,8 +3093,14 @@
 
     // Atualiza o pokémon líder a partir da lista
     function updateLeader(pokeList) {
-        allPokesList = pokeList;
-        currentPartyList = pokeList.filter(p => p.team).sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
+        if (Array.isArray(pokeList)) {
+            const map = new Map(allPokesList.map(p => [p.id, p]));
+            for (const p of pokeList) {
+                if (p && p.id != null) map.set(p.id, { ...(map.get(p.id) || {}), ...p });
+            }
+            allPokesList = Array.from(map.values());
+        }
+        currentPartyList = allPokesList.filter(p => p.team).sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
         const leader = currentPartyList.find(p => p.leader) ?? currentPartyList[0];
         if (leader) {
             currentLeaderData = leader;
