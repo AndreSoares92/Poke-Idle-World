@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.0.0
-// @description  Escolha os pokémons que quer caçar e ele troca automaticamente de rota.
+// @version      3.0.2
+// @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats e Analisador de Moves.
 // @author       You
 // @match        https://poke.idleworld.online/play
 // @run-at       document-start
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.0.0';
+    const SCRIPT_VERSION = '3.0.2';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -757,6 +757,7 @@
 #piw-reopen.piw-dock-mode {
     position: relative !important; top: auto !important; left: auto !important; right: auto !important; bottom: auto !important;
     display: inline-flex !important; align-items: center !important; justify-content: center !important;
+    width: 36px !important; height: 36px !important;
     cursor: pointer !important; z-index: 1000; padding: 0 !important;
     box-sizing: border-box !important; flex-shrink: 0;
     border-radius: 6px !important;
@@ -1640,23 +1641,25 @@
         let panelClosed = GM_getValue('piw_panelClosed', false);
         if (panelClosed) {
             panel.style.display = 'none';
-            reopenBtn.style.display = 'flex';
         } else {
-            panel.style.display = '';
-            reopenBtn.style.display = 'none';
+            panel.style.display = 'flex';
         }
 
         closeBtn.addEventListener('click', () => {
             panel.style.display = 'none';
-            reopenBtn.style.display = 'flex';
             GM_setValue('piw_panelClosed', true);
         });
+
         reopenBtn.addEventListener('click', () => {
             if (reopenBtn._wasDragged) return;
-            panel.style.display = '';
-            reopenBtn.style.display = 'none';
-            GM_setValue('piw_panelClosed', false);
-            bringToFront(panel);
+            if (panel.style.display === 'none') {
+                panel.style.display = 'flex';
+                GM_setValue('piw_panelClosed', false);
+                bringToFront(panel);
+            } else {
+                panel.style.display = 'none';
+                GM_setValue('piw_panelClosed', true);
+            }
         });
 
         // Hub button listeners
@@ -1671,8 +1674,16 @@
         if (savedPos) {
             const pl = parseFloat(savedPos.left);
             const pt = parseFloat(savedPos.top);
-            if (!isNaN(pl)) { panel.style.left = pl + 'px'; panel.style.right = 'auto'; }
-            if (!isNaN(pt)) { panel.style.top = pt + 'px'; panel.style.bottom = 'auto'; }
+            const maxLeft = Math.max(10, (window.innerWidth || 1200) - 340);
+            const maxTop = Math.max(10, (window.innerHeight || 800) - 200);
+            if (!isNaN(pl) && pl >= 0 && pl <= maxLeft) {
+                panel.style.left = pl + 'px';
+                panel.style.right = 'auto';
+            }
+            if (!isNaN(pt) && pt >= 0 && pt <= maxTop) {
+                panel.style.top = pt + 'px';
+                panel.style.bottom = 'auto';
+            }
         }
 
         const title = panel.querySelector('h3');
@@ -2615,10 +2626,12 @@
                     }
                 }
                 const capturedPokes = Array.isArray(raw.capturedPokes) ? raw.capturedPokes : [];
+                const cleanSlug = (typeof raw.slug === 'string' && raw.slug.trim()) ? raw.slug.trim() : null;
+                const cleanName = (typeof raw.huntName === 'string' && raw.huntName.trim()) ? raw.huntName.trim() : null;
                 return {
                     startAt: Number(raw.startAt) || Date.now(),
-                    slug: raw.slug || null,
-                    huntName: raw.huntName || null,
+                    slug: cleanSlug,
+                    huntName: cleanName,
                     speciesId: raw.speciesId || null,
                     activeMs: Number(raw.activeMs) || 0,
                     lastTickAt: null,
@@ -2642,24 +2655,28 @@
         try {
             if (!huntSession) return;
             const dropsList = [];
-            for (const [key, data] of huntSession.drops.entries()) {
-                dropsList.push({ key, data });
+            if (huntSession.drops && typeof huntSession.drops.entries === 'function') {
+                for (const [key, data] of huntSession.drops.entries()) {
+                    dropsList.push({ key, data });
+                }
             }
+            const cleanSlug = (typeof huntSession.slug === 'string' && huntSession.slug.trim()) ? huntSession.slug.trim() : null;
+            const cleanName = (typeof huntSession.huntName === 'string' && huntSession.huntName.trim()) ? huntSession.huntName.trim() : 'Rota';
             const toSave = {
-                startAt: huntSession.startAt,
-                slug: huntSession.slug,
-                huntName: huntSession.huntName,
-                speciesId: huntSession.speciesId,
-                activeMs: huntSession.activeMs,
-                kills: huntSession.kills,
-                xp: huntSession.xp,
-                caps: huntSession.caps,
-                capsValue: huntSession.capsValue || 0,
-                capturedPokes: huntSession.capturedPokes || [],
-                balls: huntSession.balls,
-                ballsByType: huntSession.ballsByType,
-                potions: huntSession.potions,
-                potionsByType: huntSession.potionsByType,
+                startAt: Number(huntSession.startAt) || Date.now(),
+                slug: cleanSlug,
+                huntName: cleanName,
+                speciesId: huntSession.speciesId || null,
+                activeMs: Number(huntSession.activeMs) || 0,
+                kills: Number(huntSession.kills) || 0,
+                xp: Number(huntSession.xp) || 0,
+                caps: Number(huntSession.caps) || 0,
+                capsValue: Number(huntSession.capsValue) || 0,
+                capturedPokes: Array.isArray(huntSession.capturedPokes) ? huntSession.capturedPokes : [],
+                balls: Number(huntSession.balls) || 0,
+                ballsByType: huntSession.ballsByType || {},
+                potions: Number(huntSession.potions) || 0,
+                potionsByType: huntSession.potionsByType || {},
                 dropsList: dropsList
             };
             GM_setValue('piw_saved_hunt_session', toSave);
@@ -2688,7 +2705,7 @@
     // ========== JANELA DE RENDIMENTO / FARM TRACKER ==========
     let trackerWindowVisible = GM_getValue('piw_tracker_win_visible', false);
     let trackerActiveTab = 'session'; // 'session' | 'history'
-    let trackerActiveSlug = huntSession?.slug ? huntSession.slug.toLowerCase().trim() : '';
+    let trackerActiveSlug = (huntSession?.slug && typeof huntSession.slug === 'string') ? huntSession.slug.toLowerCase().trim() : '';
     let historySortBy = 'recent'; // 'recent' | 'exp' | 'net'
     let routeHistory = GM_getValue('piw_route_history', []);
     let trackerInterval = null;
@@ -2703,7 +2720,7 @@
     }
 
     function isCitySlug(slug) {
-        if (!slug) return true;
+        if (!slug || typeof slug !== 'string') return true;
         const s = String(slug).toLowerCase().trim();
         if (CITY_SLUGS.has(s)) return true;
         return /cidade|city|town|village|cassino|casino|depot|center|market|pallet|viridian|pewter|cerulean|vermilion|lavender|celadon|fuchsia|saffron|cinnabar|pokecenter/i.test(s);
@@ -2719,10 +2736,10 @@
     }
 
     function getSessionLootTotal() {
+        if (!huntSession?.drops || typeof huntSession.drops.values !== 'function') return 0;
         let total = 0;
         for (const d of huntSession.drops.values()) {
-            const unitPrice = getItemNpcPrice(d.itemId, d.price);
-            total += (d.qty || 0) * unitPrice;
+            total += (Number(d.qty) || 0) * (Number(d.price) || 0);
         }
         return total;
     }
@@ -2732,9 +2749,10 @@
     }
 
     function getSessionSupplyTotal() {
-        const effectiveBalls = Math.max(huntSession.balls, huntSession.kills);
+        if (!huntSession) return 0;
+        const effectiveBalls = Math.max(huntSession.balls || 0, huntSession.kills || 0);
         let ballsCost = 0;
-        if (huntSession.balls > 0) {
+        if (huntSession.balls > 0 && huntSession.ballsByType) {
             for (const [id, qty] of Object.entries(huntSession.ballsByType)) {
                 ballsCost += (Number(qty) || 0) * (gameBallPrices[id] || 81);
             }
@@ -2743,14 +2761,17 @@
         }
 
         let potionsCost = 0;
-        for (const [id, qty] of Object.entries(huntSession.potionsByType)) {
-            potionsCost += (Number(qty) || 0) * (gamePotionPrices[id] || 300);
+        if (huntSession.potionsByType) {
+            for (const [id, qty] of Object.entries(huntSession.potionsByType)) {
+                potionsCost += (Number(qty) || 0) * (gamePotionPrices[id] || 300);
+            }
         }
         return ballsCost + potionsCost;
     }
 
     function onRouteOrHuntChange(newSlug) {
-        const cleanSlug = (newSlug || currentSlug || '').toLowerCase().trim();
+        const rawSlug = (typeof newSlug === 'string' && newSlug.trim()) ? newSlug.trim() : (typeof currentSlug === 'string' ? currentSlug.trim() : '');
+        const cleanSlug = rawSlug.toLowerCase().trim();
         if (!cleanSlug) return;
 
         // Se a nova rota for cidade, não reseta e não salva
@@ -2784,11 +2805,12 @@
     }
 
     function resetTrackerSession(newSlug) {
-        const slugVal = newSlug || currentSlug || null;
+        const cleanSlug = (typeof newSlug === 'string' && newSlug.trim()) ? newSlug.trim() : (typeof currentSlug === 'string' && currentSlug.trim() ? currentSlug.trim() : null);
+        const cleanName = (typeof cleanSlug === 'string') ? (getDisplayHuntName() || cleanSlug) : 'Rota';
         huntSession = {
             startAt: Date.now(),
-            slug: slugVal,
-            huntName: getDisplayHuntName() || slugVal || 'Rota',
+            slug: cleanSlug,
+            huntName: cleanName,
             speciesId: null,
             activeMs: 0,
             lastTickAt: null,
@@ -3204,13 +3226,15 @@
             </div>
 
             <div style="display:flex;gap:6px">
-                <button id="piw-tw-save-btn" style="flex:2;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,.3)">💾 Salvar no Histórico</button>
-                <button id="piw-tw-reset-btn" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#e0e4ef;border-radius:8px;padding:8px;font-size:11.5px;font-weight:600;cursor:pointer">↻ Resetar</button>
+                <button id="piw-tw-save-btn" style="flex:2;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,.3);transition:all .15s">💾 Salvar no Histórico</button>
+                <button id="piw-tw-reset-btn" style="flex:1;background:linear-gradient(135deg,#ef4444,#dc2626);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,.3);transition:all .15s">↻ Resetar</button>
             </div>
         `;
 
-        body.querySelector('#piw-tw-save-btn')?.addEventListener('click', saveCurrentRouteSession);
-        body.querySelector('#piw-tw-reset-btn')?.addEventListener('click', resetTrackerSession);
+        body.querySelector('#piw-tw-save-btn')?.addEventListener('click', () => saveCurrentRouteSession(true));
+        body.querySelector('#piw-tw-reset-btn')?.addEventListener('click', () => {
+            resetTrackerSession();
+        });
     }
 
 
@@ -3859,9 +3883,11 @@
             try {
                 const sampleStyle = window.getComputedStyle(sampleDockBtn);
                 if (sampleStyle) {
-                    if (sampleStyle.width && sampleStyle.width !== 'auto') reopenBtn.style.width = sampleStyle.width;
-                    if (sampleStyle.height && sampleStyle.height !== 'auto') reopenBtn.style.height = sampleStyle.height;
-                    if (sampleStyle.margin) reopenBtn.style.margin = sampleStyle.margin;
+                    const parsedW = parseFloat(sampleStyle.width);
+                    const parsedH = parseFloat(sampleStyle.height);
+                    if (!isNaN(parsedW) && parsedW >= 24) reopenBtn.style.width = sampleStyle.width;
+                    if (!isNaN(parsedH) && parsedH >= 24) reopenBtn.style.height = sampleStyle.height;
+                    if (sampleStyle.margin && sampleStyle.margin !== '0px') reopenBtn.style.margin = sampleStyle.margin;
                     if (sampleStyle.borderRadius) reopenBtn.style.borderRadius = sampleStyle.borderRadius;
                 }
             } catch(e) {}
@@ -3871,12 +3897,8 @@
         return false;
     }
 
-    // Polling contínuo rápido para anexar ao dock do jogo sem sobressalto na tela
-    const dockCheckTimer = setInterval(() => {
-        if (attachReopenBtnToDock()) {
-            clearInterval(dockCheckTimer);
-        }
-    }, 100);
+    // Polling contínuo para manter o botão sempre anexado ao dock do jogo
+    setInterval(attachReopenBtnToDock, 500);
 
     // Polling regular para detectar rota e manter UI sincronizada
     setInterval(() => { detectRoute(); onRouteOrHuntChange(currentSlug); attachReopenBtnToDock(); persistHuntSession(); syncUI(); }, 2000);
