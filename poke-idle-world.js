@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.0.2
+// @version      3.0.7
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats e Analisador de Moves.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.0.2';
+    const SCRIPT_VERSION = '3.0.7';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -126,35 +126,24 @@
         return false;
     }
 
-    function getDisplayHuntName() {
+    function getDisplayHuntName(ignoreSession = false) {
         if (isCity()) {
             return 'Cidade / Centro Pokémon';
         }
 
-        // 0. Se a sessão de hunt já identificou o Pokémon ativo na tela
-        if (huntSession?.huntName && !/^(kanto|outland|johto|hoenn|sinnoh|cidade|centro)$/i.test(huntSession.huntName.trim())) {
-            return cleanPokemonName(huntSession.huntName);
-        }
-
-        // 1. Inimigo ou alvo no DOM
-        const enemyEl = document.querySelector('.wild-name, .enemy-name, [class*="wild"] .name, [class*="enemy"] .name, [class*="target"] .name');
-        if (enemyEl?.textContent) {
-            const clean = cleanPokemonName(enemyEl.textContent);
-            if (clean && !/^(kanto|outland)$/i.test(clean)) return clean;
-        }
-
-        const activeMarker = document.querySelector('button.hunt-marker.here .hunt-name, button.hunt-marker.active .hunt-name, .hunt-title');
-        if (activeMarker?.textContent) {
-            const clean = cleanPokemonName(activeMarker.textContent);
-            if (clean && !/^(kanto|outland)$/i.test(clean)) return clean;
-        }
-
-        // 2. Pokémon caçado salvo
+        // 1. Alvo ativo do Auto Hunt
         if (huntingPokemon && !/^(kanto|outland|johto|hoenn|sinnoh)$/i.test(huntingPokemon)) {
             return cleanPokemonName(huntingPokemon);
         }
 
-        // 3. Rota atual se não for apenas o nome da região
+        // 2. Inimigo ou alvo no DOM (batalha em andamento no campo, fora de modais/mapas)
+        const enemyEl = document.querySelector('.wild-name, .enemy-name, [class*="wild"] .name, [class*="enemy"] .name, [class*="target"] .name, [class*="mob"] .name');
+        if (enemyEl && !enemyEl.closest('.map-overlay, .map-container, [class*="map-modal"], [class*="map-content"], .piw-modal, [id^="piw-"]')) {
+            const clean = cleanPokemonName(enemyEl.textContent);
+            if (clean && !/^(kanto|outland|johto|hoenn|sinnoh)$/i.test(clean)) return clean;
+        }
+
+        // 3. Rota atual do jogo
         if (currentRoute && !/^(kanto|outland|johto|hoenn|sinnoh)$/i.test(currentRoute.trim())) {
             return cleanPokemonName(currentRoute);
         }
@@ -162,19 +151,12 @@
             return cleanPokemonName(currentSlug);
         }
 
-        // 4. Varre textos no topo/campo buscando por nome de Pokémon
-        if (Array.isArray(creatures) && creatures.length > 0) {
-            const candidates = document.querySelectorAll('h1, h2, h3, .field-area, [class*="area-name"], [class*="hunt"]');
-            for (const el of candidates) {
-                const t = (el.textContent || '').trim();
-                const match = creatures.find(c => c.name?.toLowerCase() === t.toLowerCase());
-                if (match && !/^(kanto|outland)$/i.test(match.name)) {
-                    return match.name;
-                }
-            }
+        // 4. Nome registrado na sessão
+        if (!ignoreSession && huntSession?.huntName && !/^(kanto|outland|johto|hoenn|sinnoh|cidade|centro)$/i.test(huntSession.huntName.trim())) {
+            return cleanPokemonName(huntSession.huntName);
         }
 
-        return currentRoute || currentSlug || 'Caça Ativa';
+        return 'Caça Ativa';
     }
 
     // ========== SISTEMA DE TIPOS ==========
@@ -544,7 +526,28 @@
             .replace(/\s*\d+(\.\d+)?%\s*/gi, '')
             .replace(/\s*\([^)]*%\)/gi, '')
             .replace(/\s*\[[^\]]*%\]/gi, '')
+            .replace(/\bshiny\b/gi, '')
+            .replace(/[✨★☆]/g, '')
+            .replace(/\s*\(\s*shiny\s*\)/gi, '')
+            .replace(/\s*\[\s*shiny\s*\]/gi, '')
+            .replace(/\s{2,}/g, ' ')
             .trim();
+    }
+
+    function normalizeHuntKey(str) {
+        if (!str || typeof str !== 'string') return '';
+        return cleanPokemonName(str)
+            .toLowerCase()
+            .replace(/[-_]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function formatHuntName(str) {
+        if (!str || typeof str !== 'string') return 'Rota';
+        const cleaned = cleanPokemonName(str).replace(/[-_]+/g, ' ').trim();
+        if (!cleaned) return 'Rota';
+        return cleaned.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     }
 
     function getPartyMonStatsFromDOM(slotIdx, name) {
@@ -2335,6 +2338,40 @@
                 GM_log('[AutoHunt] Clique na casinha/cidade detectado!');
             }
         }
+        // Detecta clique em marcador de caça no mapa do jogo
+        const marker = e.target.closest('button.hunt-marker, .hunt-marker');
+        if (marker) {
+            const nameEl = marker.querySelector('.hunt-name') || marker;
+            const targetName = cleanPokemonName(nameEl.textContent);
+            if (targetName && !/^(kanto|outland|johto|hoenn|sinnoh|cidade|centro)$/i.test(targetName)) {
+                const targetKey = normalizeHuntKey(targetName);
+                const curKey = normalizeHuntKey(huntSession?.huntName || currentRoute || trackerActiveSlug || '');
+                const isSameHunt = targetKey && curKey && (targetKey === curKey);
+
+                if (!isSameHunt) {
+                    GM_log('[AutoHunt] Troca de hunt via mapa:', targetName);
+                    const minAutoSaveMs = 10 * 60 * 1000;
+                    if (huntSession && (huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
+                        saveCurrentRouteSession(false);
+                    }
+                    currentRoute = formatHuntName(targetName);
+                    currentSlug = targetKey.replace(/\s+/g, '-');
+                    trackerActiveSlug = targetKey;
+                    huntingPokemon = '';
+                    GM_setValue('piw_huntingPokemon', '');
+                    resetTrackerSession(targetName);
+                    resetObservedMoves();
+                    syncUI();
+                } else {
+                    GM_log('[AutoHunt] Retornou para a mesma caça:', targetName, '(sessão mantida)');
+                    currentRoute = formatHuntName(targetName);
+                    currentSlug = targetKey.replace(/\s+/g, '-');
+                    trackerActiveSlug = targetKey;
+                    syncUI();
+                }
+            }
+        }
+
         const depotBtn = e.target.closest('[class*="depot"], [class*="storage"], [class*="box"], [class*="pc"], button[data-guide*="depot"], button[data-guide*="storage"]');
         if (depotBtn) {
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -2770,43 +2807,37 @@
     }
 
     function onRouteOrHuntChange(newSlug) {
-        const rawSlug = (typeof newSlug === 'string' && newSlug.trim()) ? newSlug.trim() : (typeof currentSlug === 'string' ? currentSlug.trim() : '');
-        const cleanSlug = rawSlug.toLowerCase().trim();
-        if (!cleanSlug) return;
-
-        // Se a nova rota for cidade, não reseta e não salva
-        if (isCitySlug(cleanSlug)) {
-            return;
-        }
+        const rawKey = normalizeHuntKey(newSlug || currentSlug || '');
+        if (!rawKey || isCitySlug(rawKey)) return;
 
         // Se for a primeira inicialização após carregar a página
         if (!trackerActiveSlug) {
-            trackerActiveSlug = cleanSlug;
+            trackerActiveSlug = rawKey;
             if (huntSession) {
-                huntSession.slug = cleanSlug;
+                huntSession.slug = rawKey;
                 if (!huntSession.huntName || /cidade|centro/i.test(huntSession.huntName)) {
-                    huntSession.huntName = getDisplayHuntName() || cleanSlug;
+                    huntSession.huntName = getDisplayHuntName() || formatHuntName(rawKey);
                 }
             }
             return;
         }
 
         // Se REALMENTE trocou para uma hunt diferente
-        if (cleanSlug !== trackerActiveSlug) {
+        if (rawKey !== normalizeHuntKey(trackerActiveSlug)) {
             // Salva a hunt anterior no histórico apenas se tiver durado no mínimo 10 minutos (600.000 ms)
             const minAutoSaveMs = 10 * 60 * 1000; // 10 minutos
             if (huntSession && (huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
                 saveCurrentRouteSession(false); // false para não trocar a aba ativa
             }
 
-            trackerActiveSlug = cleanSlug;
-            resetTrackerSession(cleanSlug);
+            trackerActiveSlug = rawKey;
+            resetTrackerSession(newSlug);
         }
     }
 
     function resetTrackerSession(newSlug) {
         const cleanSlug = (typeof newSlug === 'string' && newSlug.trim()) ? newSlug.trim() : (typeof currentSlug === 'string' && currentSlug.trim() ? currentSlug.trim() : null);
-        const cleanName = (typeof cleanSlug === 'string') ? (getDisplayHuntName() || cleanSlug) : 'Rota';
+        const cleanName = (typeof cleanSlug === 'string' && !/^(kanto|outland)$/i.test(cleanSlug)) ? cleanSlug : (getDisplayHuntName(true) || 'Rota');
         huntSession = {
             startAt: Date.now(),
             slug: cleanSlug,
@@ -3967,14 +3998,16 @@
                 }
             }
             if (data.slug) {
-                const isNewSlug = currentSlug !== data.slug;
+                const key = normalizeHuntKey(data.slug);
+                const prevKey = normalizeHuntKey(currentSlug);
+                const isNewSlug = key && prevKey && (key !== prevKey);
                 onRouteOrHuntChange(data.slug);
                 currentSlug = data.slug;
-                currentRoute = data.name || data.slug;
+                currentRoute = data.name ? cleanPokemonName(data.name) : formatHuntName(data.slug);
                 if (huntSession) {
-                    huntSession.slug = data.slug;
+                    huntSession.slug = key;
                     if (!huntSession.huntName || /cidade|centro/i.test(huntSession.huntName)) {
-                        huntSession.huntName = getDisplayHuntName() || currentRoute;
+                        huntSession.huntName = currentRoute;
                     }
                 }
                 if (isNewSlug) {
@@ -3991,54 +4024,19 @@
             }
         }
 
-        // 2. Field Tick (contabiliza tempo ativo na hunt e detecta troca instantânea de espécies)
+        // 2. Field Tick (contabiliza tempo ativo na hunt e atualiza nome do monstro)
         if (data.type === 'field' && Number.isFinite(Number(data.seq))) {
             const now = Date.now();
 
-            // Identifica espécie dominante dos monstros na tela
-            let dominantSpeciesId = null;
-            if (Array.isArray(data.mobs) && data.mobs.length > 0) {
-                const counts = new Map();
-                for (const m of data.mobs) {
-                    if (m && m.speciesId != null) {
-                        counts.set(m.speciesId, (counts.get(m.speciesId) || 0) + 1);
-                    }
-                }
-                let max = null;
-                for (const [sId, count] of counts.entries()) {
-                    if (!max || count > max.count) max = { id: sId, count };
-                }
-                if (max) dominantSpeciesId = max.id;
-            }
-
-            if (dominantSpeciesId != null) {
-                const cr = creatures.find(c => (c.pokeId || c.id) == dominantSpeciesId);
-                const speciesName = cr ? cleanPokemonName(cr.name) : null;
-
-                if (huntSession.speciesId == null) {
-                    huntSession.speciesId = dominantSpeciesId;
-                    if (speciesName) {
+            if (!huntingPokemon && Array.isArray(data.mobs) && data.mobs.length > 0) {
+                const firstMob = data.mobs[0];
+                if (firstMob && firstMob.speciesId != null) {
+                    const cr = creatures.find(c => (c.pokeId || c.id) == firstMob.speciesId);
+                    const speciesName = cr ? cleanPokemonName(cr.name) : null;
+                    if (speciesName && speciesName !== huntSession.huntName && !/^(kanto|outland|cidade|centro)$/i.test(speciesName)) {
                         huntSession.huntName = speciesName;
                         currentRoute = speciesName;
-                        currentSlug = speciesName.toLowerCase().replace(/\s+/g, '_');
-                        trackerActiveSlug = currentSlug;
                     }
-                } else if (dominantSpeciesId !== huntSession.speciesId) {
-                    // TROCA REAL DE HUNT DETECTADA DIRETAMENTE NO CAMPO!
-                    const minAutoSaveMs = 10 * 60 * 1000; // 10 minutos
-                    if ((huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
-                        saveCurrentRouteSession(false);
-                    }
-                    const newName = speciesName || (currentRoute || currentSlug || 'Rota');
-                    const newSlug = newName.toLowerCase().replace(/\s+/g, '_');
-                    resetTrackerSession(newSlug);
-                    huntSession.speciesId = dominantSpeciesId;
-                    huntSession.huntName = newName;
-                    currentRoute = newName;
-                    currentSlug = newSlug;
-                    trackerActiveSlug = newSlug;
-                } else if (speciesName && huntSession.huntName !== speciesName) {
-                    huntSession.huntName = speciesName;
                 }
             }
 
@@ -4057,18 +4055,9 @@
         // 3. Abate Oficial no Campo (XP exata + Drops reais com itens e preços de catálogo)
         if (data.type === 'field-kill') {
             const currentMobName = cleanPokemonName(data.name || data.mob?.name || data.mobName || data.speciesName || huntingPokemon);
-            if (currentMobName && huntSession.huntName && !/cidade|centro|rota/i.test(huntSession.huntName)) {
-                const cleanMob = currentMobName.toLowerCase();
-                const cleanPrev = huntSession.huntName.toLowerCase();
-                if (cleanMob !== cleanPrev && !cleanPrev.includes(cleanMob) && !cleanMob.includes(cleanPrev)) {
-                    // O alvo mudou de forma definitiva!
-                    const minAutoSaveMs = 10 * 60 * 1000;
-                    if ((huntSession.activeMs || 0) >= minAutoSaveMs && (huntSession.kills > 0 || huntSession.xp > 0)) {
-                        saveCurrentRouteSession(false);
-                    }
-                    resetTrackerSession(cleanMob);
-                    huntSession.huntName = currentMobName;
-                }
+            if (currentMobName && !huntingPokemon && !/^(kanto|outland|cidade|centro)$/i.test(currentMobName)) {
+                huntSession.huntName = currentMobName;
+                currentRoute = currentMobName;
             } else if (currentMobName && (!huntSession.huntName || /cidade|centro|rota/i.test(huntSession.huntName))) {
                 huntSession.huntName = currentMobName;
             }
