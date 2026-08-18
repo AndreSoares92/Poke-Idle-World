@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.0.9
+// @version      3.1.3
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats e Analisador de Moves.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.0.9';
+    const SCRIPT_VERSION = '3.1.3';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -949,9 +949,9 @@
 .piw-iw-dot { width: 8px; height: 8px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 10px #a78bfa; }
 .piw-iw-close { cursor: pointer; color: #c4b5fd; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-iw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; }
 .piw-iw-party-bar { display: flex; gap: 6px; padding: 6px 8px; margin-bottom: 8px; background: rgba(10,12,20,.75); border: 1px solid rgba(132,144,255,.2); border-radius: 10px; overflow-x: auto; align-items: center; justify-content: center; }
 .piw-iw-party-slot { position: relative; width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; flex-shrink: 0; }
+.piw-iw-party-slot * { pointer-events: none; }
 .piw-iw-party-slot:hover { background: rgba(132,144,255,.15); border-color: rgba(132,144,255,.5); transform: translateY(-2px); }
 .piw-iw-party-slot.leader { border-color: rgba(255,213,74,.5); }
 .piw-iw-party-slot.inspected { border-color: #a78bfa !important; box-shadow: 0 0 10px rgba(167,139,250,.6) !important; background: rgba(167,139,250,.2) !important; }
@@ -1020,8 +1020,38 @@
 .piw-mw-dot { width: 8px; height: 8px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
 .piw-mw-close { cursor: pointer; color: #a5f3fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-mw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-iw-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
-.piw-mw-body { padding: 10px 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
+.piw-iw-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-mw-body { padding: 10px 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-mw-party-bar { display: flex; gap: 6px; padding: 6px 8px; margin-bottom: 8px; background: rgba(10,12,20,.75); border: 1px solid rgba(6,182,212,.25); border-radius: 10px; overflow-x: auto; align-items: center; justify-content: center; }
+.piw-mw-party-slot { position: relative; width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; flex-shrink: 0; }
+.piw-mw-party-slot * { pointer-events: none; }
+.piw-mw-party-slot:hover { background: rgba(6,182,212,.15); border-color: rgba(6,182,212,.5); transform: translateY(-2px); }
+.piw-mw-party-slot.leader { border-color: rgba(255,213,74,.5); }
+.piw-mw-party-slot.inspected { border-color: #22d3ee !important; box-shadow: 0 0 10px rgba(34,211,238,.6) !important; background: rgba(34,211,238,.2) !important; }
+.piw-mw-party-slot img { width: 28px; height: 28px; object-fit: contain; }
+.piw-mw-party-slot .piw-slot-lv { position: absolute; bottom: 0px; right: 2px; font-size: 8px; font-weight: 700; color: #cbd5e1; text-shadow: 0 1px 2px #000; }
+.piw-mw-party-slot .piw-slot-leader { position: absolute; top: -4px; left: -2px; font-size: 10px; line-height: 1; }
+
+.piw-iw-body::-webkit-scrollbar,
+.piw-mw-body::-webkit-scrollbar,
+.piw-tw-body::-webkit-scrollbar,
+.piw-ah-body::-webkit-scrollbar,
+.piw-modal-body::-webkit-scrollbar { width: 5px; height: 5px; }
+.piw-iw-body::-webkit-scrollbar-track,
+.piw-mw-body::-webkit-scrollbar-track,
+.piw-tw-body::-webkit-scrollbar-track,
+.piw-ah-body::-webkit-scrollbar-track,
+.piw-modal-body::-webkit-scrollbar-track { background: transparent; }
+.piw-iw-body::-webkit-scrollbar-thumb,
+.piw-mw-body::-webkit-scrollbar-thumb,
+.piw-tw-body::-webkit-scrollbar-thumb,
+.piw-ah-body::-webkit-scrollbar-thumb,
+.piw-modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
+.piw-iw-body::-webkit-scrollbar-thumb:hover,
+.piw-mw-body::-webkit-scrollbar-thumb:hover,
+.piw-tw-body::-webkit-scrollbar-thumb:hover,
+.piw-ah-body::-webkit-scrollbar-thumb:hover,
+.piw-modal-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.35); }
 
 #piw-tracker-window {
     position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
@@ -1050,7 +1080,7 @@
 .piw-tw-tab { flex: 1; text-align: center; padding: 6px 8px; border-radius: 8px; font-weight: 700; font-size: 11px; cursor: pointer; color: #9aa3bf; background: transparent; border: 1px solid transparent; transition: all .15s; }
 .piw-tw-tab:hover { color: #fff; background: rgba(255,255,255,.05); }
 .piw-tw-tab.active { color: #34d399; background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.35); box-shadow: 0 0 10px rgba(16,185,129,.2); }
-.piw-tw-body { padding: 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
+.piw-tw-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
 .piw-tw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .piw-tw-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 9px 10px; }
 .piw-tw-stat-title { font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 4px; }
@@ -1087,7 +1117,7 @@
 .piw-ah-dot { width: 8px; height: 8px; border-radius: 50%; background: #f87171; box-shadow: 0 0 10px #f87171; }
 .piw-ah-close { cursor: pointer; color: #fca5a5; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-ah-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-ah-body { padding: 12px; max-height: 80vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
+.piw-ah-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
 
 .piw-hub-btn {
     background: rgba(255,255,255,.04);
@@ -1819,6 +1849,34 @@
 
         const resizeHandle = win.querySelector('.piw-win-resize');
         makeResizable(win, resizeHandle, 'piw_info_win_size', 340, 200);
+
+        const handleSlotSelect = (e) => {
+            const slot = e.target.closest('.piw-iw-party-slot');
+            if (!slot) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const id = slot.dataset.id;
+            const idx = parseInt(slot.dataset.idx, 10);
+            let selected = null;
+            if (currentPartyList && currentPartyList.length > 0) {
+                if (id) selected = currentPartyList.find(p => String(p.id) === String(id));
+                if (!selected && !isNaN(idx)) selected = currentPartyList[idx];
+            }
+            if (selected) {
+                const isLeaderMon = selected.leader || (currentLeaderData && selected.id === currentLeaderData.id);
+                if (isLeaderMon) {
+                    inspectedPokemon = null;
+                    isPartySlotPinned = false;
+                } else {
+                    inspectedPokemon = selected;
+                    isPartySlotPinned = true;
+                }
+                renderInfoWindow();
+            }
+        };
+
+        win.addEventListener('pointerdown', handleSlotSelect);
+        win.addEventListener('click', handleSlotSelect);
     }
 
     function closeInfoWindow() {
@@ -1964,7 +2022,7 @@
                         const isSelectedMon = inspectedPokemon ? (p.id === inspectedPokemon.id) : isLeaderMon;
                         const iconUrl = getPokemonImageUrl(pSpecies, pName);
                         return `
-                            <div class="piw-iw-party-slot${isLeaderMon ? ' leader' : ''}${isSelectedMon ? ' inspected' : ''}" data-idx="${idx}" title="${pName} (Nv. ${p.level || '?'})${isLeaderMon ? ' - Líder Ativo' : ''}">
+                            <div class="piw-iw-party-slot${isLeaderMon ? ' leader' : ''}${isSelectedMon ? ' inspected' : ''}" data-idx="${idx}" data-id="${p.id || ''}" title="${pName} (Nv. ${p.level || '?'})${isLeaderMon ? ' - Líder Ativo' : ''}">
                                 ${isLeaderMon ? '<span class="piw-slot-leader">⭐</span>' : ''}
                                 <img src="${iconUrl}" onerror="this.style.display='none'">
                                 <span class="piw-slot-lv">${p.level || ''}</span>
@@ -2107,28 +2165,11 @@
             ${effSectionHtml}
             ${ivsSectionHtml}
         `;
-
-        body.querySelectorAll('.piw-iw-party-slot').forEach(slot => {
-            slot.addEventListener('click', () => {
-                const idx = parseInt(slot.dataset.idx, 10);
-                if (currentPartyList && currentPartyList[idx]) {
-                    const selected = currentPartyList[idx];
-                    const isLeaderMon = selected.leader || (currentLeaderData && selected.id === currentLeaderData.id);
-                    if (isLeaderMon) {
-                        inspectedPokemon = null;
-                        isPartySlotPinned = false;
-                    } else {
-                        inspectedPokemon = selected;
-                        isPartySlotPinned = true;
-                    }
-                    renderInfoWindow();
-                }
-            });
-        });
     }
 
     // ========== JANELA DE MOVES ==========
     let movesWindowVisible = GM_getValue('piw_moves_win_visible', false);
+    let inspectedMovesPokemon = null;
     let observedMovesMap = new Map();
     let currentActiveMove = null;
 
@@ -2285,6 +2326,32 @@
 
         const resizeHandle = win.querySelector('.piw-win-resize');
         makeResizable(win, resizeHandle, 'piw_moves_win_size', 220, 160);
+
+        const handleSlotSelect = (e) => {
+            const slot = e.target.closest('.piw-mw-party-slot');
+            if (!slot) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const id = slot.dataset.id;
+            const idx = parseInt(slot.dataset.idx, 10);
+            let selected = null;
+            if (currentPartyList && currentPartyList.length > 0) {
+                if (id) selected = currentPartyList.find(p => String(p.id) === String(id));
+                if (!selected && !isNaN(idx)) selected = currentPartyList[idx];
+            }
+            if (selected) {
+                const isLead = selected.leader || (currentLeaderData && selected.id === currentLeaderData.id);
+                if (isLead) {
+                    inspectedMovesPokemon = null;
+                } else {
+                    inspectedMovesPokemon = selected;
+                }
+                renderMovesWindow();
+            }
+        };
+
+        win.addEventListener('pointerdown', handleSlotSelect);
+        win.addEventListener('click', handleSlotSelect);
     }
 
     function closeMovesWindow() {
@@ -2307,6 +2374,9 @@
         win.style.display = movesWindowVisible ? 'flex' : 'none';
         if (movesWindowVisible) {
             bringToFront(win);
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
+            }
             renderMovesWindow();
         }
     }
@@ -2384,11 +2454,20 @@
 
     function findPokemonFromElement(target) {
         if (!target || target === document.body || target === document.documentElement) return null;
-        if (target.closest('#piw-panel, #piw-info-window, #piw-moves-window, .piw-modal, #piw-pokedex-overlay')) return null;
+        
+        // Ignora qualquer elemento das janelas do próprio script
+        if (target.closest('[id^="piw-"], .piw-panel, .piw-modal, .piw-tag, .piw-card')) return null;
+
+        // Deve estar ESTRITAMENTE dentro do Depot / Storage / PC Box do jogo
+        const depotBox = target.closest('.depot-modal, .depot-container, .depot-view, .storage-modal, .storage-view, .box-container, [class*="depot"], [class*="storage"], [class*="pokes-modal"], [class*="box-view"], [class*="depot-content"], .pokes-grid, .storage-grid, .depot-grid');
+        if (!depotBox) return null;
+
+        // Não inspeciona o HUD do time em batalha
+        if (target.closest('.phud-party, .party-container, .hud-party, button.dock-btn, .header, .nav')) return null;
 
         const monEl = target.closest('[data-poke-id], [data-id], [class*="mon"], [class*="poke"], [class*="storage"], [class*="depot"], [class*="box"], [class*="slot"], [class*="item"]');
         if (!monEl) return null;
-        if (monEl.closest('button.dock-btn, .header, .nav')) return null;
+        if (monEl.closest('button.dock-btn, .header, .nav, .phud-party')) return null;
 
         const dataId = monEl.getAttribute('data-id') || monEl.getAttribute('data-poke-id') || monEl.getAttribute('data-mon-id') || monEl.dataset?.id;
         if (dataId && allPokesList && allPokesList.length > 0) {
@@ -2483,51 +2562,73 @@
         const body = win.querySelector('.piw-mw-body');
         if (!body) return;
 
-        let leader = currentLeaderData;
-        let creature = creatures.find(c => c.name?.toLowerCase() === (leader?.name || leaderName || '').toLowerCase());
+        let targetMon = inspectedMovesPokemon || currentLeaderData || (currentPartyList && currentPartyList[0]) || null;
+        if (!targetMon && leaderName) {
+            targetMon = { name: leaderName, level: leaderLevel || 1 };
+        }
 
-        const moves = extractPokemonMoves(leader, creature);
+        const isInspectingTeammate = Boolean(inspectedMovesPokemon && currentLeaderData && inspectedMovesPokemon.id !== currentLeaderData.id);
+        const name = cleanPokemonName(targetMon?.name || leaderName || '?');
+        const level = isInspectingTeammate ? (targetMon?.level || 1) : (leaderLevel || targetMon?.level || 1);
+
+        let creature = creatures.find(c => c.name?.toLowerCase() === name.toLowerCase());
+
+        const moves = extractPokemonMoves(targetMon, creature);
         const knownMovesMap = new Map(moves.map(m => [m.name.toLowerCase(), m]));
         const hasKnownMoves = moves.length > 0;
 
         const pokemonMoves = [...moves];
         const takenMovesMap = new Map();
 
-        for (const [nameKey, obs] of observedMovesMap.entries()) {
-            const isTaken = obs.taken || (hasKnownMoves && !knownMovesMap.has(nameKey));
-            if (isTaken) {
-                takenMovesMap.set(nameKey, obs);
-            } else {
-                if (knownMovesMap.has(nameKey)) {
-                    const m = knownMovesMap.get(nameKey);
-                    m.lastDmg = obs.dmg;
-                    m.lastEff = obs.eff;
-                    if (!m.type && obs.type) m.type = obs.type;
+        if (!isInspectingTeammate) {
+            for (const [nameKey, obs] of observedMovesMap.entries()) {
+                const isTaken = obs.taken || (hasKnownMoves && !knownMovesMap.has(nameKey));
+                if (isTaken) {
+                    takenMovesMap.set(nameKey, obs);
                 } else {
-                    pokemonMoves.push({
-                        name: obs.name,
-                        type: obs.type,
-                        lastDmg: obs.dmg,
-                        lastEff: obs.eff,
-                        observed: true
-                    });
+                    if (knownMovesMap.has(nameKey)) {
+                        const m = knownMovesMap.get(nameKey);
+                        m.lastDmg = obs.dmg;
+                        m.lastEff = obs.eff;
+                        if (!m.type && obs.type) m.type = obs.type;
+                    } else {
+                        pokemonMoves.push({
+                            name: obs.name,
+                            type: obs.type,
+                            lastDmg: obs.dmg,
+                            lastEff: obs.eff,
+                            observed: true
+                        });
+                    }
                 }
             }
         }
 
-        const name = leader?.name || leaderName || '?';
-        const level = leader?.level || leaderLevel || 1;
         const takenMovesList = Array.from(takenMovesMap.values());
 
-        if (pokemonMoves.length === 0 && takenMovesList.length === 0) {
-            body.innerHTML = `
-                <div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de ${name} (Lv ${level})</div>
-                <div style="color:#cbd5e1;padding:12px 6px;text-align:center;font-size:11.5px;line-height:1.4">
-                    Ainda não vi os moves deste pokémon.<br>
-                    Deixe-o batalhar — os golpes usados e o dano aparecem aqui automaticamente.
+        let partyBarHtml = '';
+        if (currentPartyList && currentPartyList.length > 0) {
+            partyBarHtml = `
+                <div class="piw-mw-party-bar" title="Clique para ver os golpes de qualquer Pokémon da sua equipe">
+                    ${currentPartyList.map((p, idx) => {
+                        const pName = cleanPokemonName(p.name);
+                        const pSpecies = p.speciesId || p.pokeId || (() => {
+                            const c = creatures.find(cr => cr.name?.toLowerCase() === pName.toLowerCase());
+                            return c?.pokeId || c?.id || 0;
+                        })();
+                        const pSprites = getPokemonSpriteUrls(pSpecies, p.shiny);
+                        const isSelected = (inspectedMovesPokemon && p.id === inspectedMovesPokemon.id) || (!inspectedMovesPokemon && (p.leader || (currentLeaderData && p.id === currentLeaderData.id)));
+                        const isLead = p.leader || (currentLeaderData && p.id === currentLeaderData.id);
+                        return `
+                            <div class="piw-mw-party-slot ${isLead ? 'leader' : ''} ${isSelected ? 'inspected' : ''}" data-idx="${idx}" title="${pName} Lv. ${p.level || 1}${isLead ? ' (Líder)' : ''}">
+                                <img src="${pSprites.still}" alt="${pName}" onerror="this.src='${pSprites.anim}'">
+                                <span class="piw-slot-lv">${p.level || 1}</span>
+                                ${isLead ? '<span class="piw-slot-leader">⭐</span>' : ''}
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
             `;
-            return;
         }
 
         const renderMoveItem = (m, isTaken = false) => {
@@ -2535,7 +2636,7 @@
             const bgType = typeKey && TYPE_COLORS_MAP[typeKey] ? TYPE_COLORS_MAP[typeKey] : null;
             const ptType = typeKey && TYPE_PT_MAP[typeKey] ? TYPE_PT_MAP[typeKey] : (m.type || 'Normal');
 
-            const isCurrent = !isTaken && currentActiveMove && m.name.toLowerCase() === currentActiveMove.toLowerCase();
+            const isCurrent = !isTaken && !isInspectingTeammate && currentActiveMove && m.name.toLowerCase() === currentActiveMove.toLowerCase();
             const dmgVal = m.lastDmg ?? m.dmg;
             const effVal = m.lastEff ?? m.eff;
             const effTxt = Number.isFinite(Number(effVal)) && Number(effVal) !== 1 ? `${Math.round(Number(effVal) * 100) / 100}x` : '';
@@ -2561,15 +2662,27 @@
             `;
         };
 
-        let html = `<div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de <b>${name}</b> (Lv ${level})</div>`;
-        html += pokemonMoves.map(m => renderMoveItem(m, false)).join('');
+        if (pokemonMoves.length === 0 && takenMovesList.length === 0) {
+            body.innerHTML = `
+                ${partyBarHtml}
+                <div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de ${name} (Lv ${level})</div>
+                <div style="color:#cbd5e1;padding:12px 6px;text-align:center;font-size:11.5px;line-height:1.4">
+                    Ainda não vi os moves deste pokémon.<br>
+                    Deixe-o batalhar — os golpes usados e o dano aparecem aqui automaticamente.
+                </div>
+            `;
+        } else {
+            let html = partyBarHtml;
+            html += `<div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de <b>${name}</b> (Lv ${level})</div>`;
+            html += pokemonMoves.map(m => renderMoveItem(m, false)).join('');
 
-        if (takenMovesList.length > 0) {
-            html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px;font-size:12px;color:#a5b4fc;font-weight:700">🛡 GOLPES RECEBIDOS <small style="color:#cbd5e1;text-transform:none;letter-spacing:0;font-size:11px;font-weight:500">· nesta hunt</small></div>`;
-            html += takenMovesList.map(m => renderMoveItem(m, true)).join('');
+            if (takenMovesList.length > 0) {
+                html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px;font-size:12px;color:#a5b4fc;font-weight:700">🛡 GOLPES RECEBIDOS <small style="color:#cbd5e1;text-transform:none;letter-spacing:0;font-size:11px;font-weight:500">· nesta hunt</small></div>`;
+                html += takenMovesList.map(m => renderMoveItem(m, true)).join('');
+            }
+
+            body.innerHTML = html;
         }
-
-        body.innerHTML = html;
     }
 
     // ========== CATÁLOGO DE ITENS E MOTOR DE HUNT NATIVO (100% AUTÔNOMO) ==========
