@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.0.7
+// @version      3.0.9
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats e Analisador de Moves.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.0.7';
+    const SCRIPT_VERSION = '3.0.9';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -692,32 +692,32 @@
 
 .piw-panel .piw-dual-progress, #piw-autohunt-window .piw-dual-progress { display: flex; gap: 8px; margin: 4px 0; }
 .piw-panel .piw-dual-progress-item, #piw-autohunt-window .piw-dual-progress-item { flex: 1; }
-.piw-panel .piw-dual-progress-label, #piw-autohunt-window .piw-dual-progress-label { font-size: 10px; color: #9aa3bf; text-align: center; margin-bottom: 2px; font-weight: 500; }
+.piw-panel .piw-dual-progress-label, #piw-autohunt-window .piw-dual-progress-label { font-size: 11px; color: #cbd5e1; text-align: center; margin-bottom: 2px; font-weight: 600; }
 .piw-panel .piw-dual-progress .piw-progress, #piw-autohunt-window .piw-dual-progress .piw-progress { height: 8px; }
 
-.piw-panel .piw-route, #piw-autohunt-window .piw-route { font-size: 11px; color: #9aa3bf; text-align: center; }
-.piw-panel .piw-leader, #piw-autohunt-window .piw-leader { font-size: 11px; color: #c084fc; text-align: center; padding: 2px 0; }
-.piw-panel .piw-shiny, #piw-autohunt-window .piw-shiny { font-size: 11px; color: #f0c040; text-align: center; padding: 2px 0; }
+.piw-panel .piw-route, #piw-autohunt-window .piw-route { font-size: 12px; color: #cbd5e1; text-align: center; font-weight: 600; }
+.piw-panel .piw-leader, #piw-autohunt-window .piw-leader { font-size: 12px; color: #d8b4fe; text-align: center; padding: 2px 0; font-weight: 700; }
+.piw-panel .piw-shiny, #piw-autohunt-window .piw-shiny { font-size: 12px; color: #fde047; text-align: center; padding: 2px 0; font-weight: 700; }
 
-.piw-panel .piw-label, #piw-autohunt-window .piw-label { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; color: #c8cddc; }
+.piw-panel .piw-label, #piw-autohunt-window .piw-label { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12.5px; color: #f1f5f9; font-weight: 600; }
 .piw-panel .piw-label input[type=number], #piw-autohunt-window .piw-label input[type=number] {
-    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
-    color: #e0e4ef; padding: 5px 10px; font-size: 12px; width: 80px;
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 8px;
+    color: #fff; padding: 5px 10px; font-size: 12px; width: 80px; font-weight: 700;
 }
 .piw-panel .piw-label input[type=number]:focus, #piw-autohunt-window .piw-label input[type=number]:focus { outline: none; border-color: #60a5fa; }
-.piw-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; position: relative; }
-.piw-check input[type=checkbox] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.2); border-radius: 5px; background: rgba(255,255,255,.06); cursor: pointer; transition: all .15s; flex-shrink: 0; position: relative; }
+.piw-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; position: relative; font-size: 12px; color: #e2e8f0; }
+.piw-check input[type=checkbox] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.25); border-radius: 5px; background: rgba(255,255,255,.08); cursor: pointer; transition: all .15s; flex-shrink: 0; position: relative; }
 .piw-check input[type=checkbox]:checked { background: #5b7fff; border-color: #5b7fff; box-shadow: 0 0 8px rgba(91,127,255,.3); }
 .piw-check input[type=checkbox]:checked::after { content: ''; position: absolute; left: 4px; top: 0px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .piw-check input[type=checkbox]:hover { border-color: #5b7fff; }
-.piw-modal-toolbar .piw-check { font-size: 12px; color: #9aa3bf; }
+.piw-modal-toolbar .piw-check { font-size: 12px; color: #f1f5f9; font-weight: 600; }
 
 .piw-panel .piw-row, #piw-autohunt-window .piw-row { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
 
 .piw-panel .piw-selected-tags, #piw-autohunt-window .piw-selected-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; min-height: 20px; }
 .piw-panel .piw-tag, #piw-autohunt-window .piw-tag {
-    background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3); border-radius: 8px;
-    padding: 3px 6px 3px 10px; font-size: 10.5px; color: #4ade80; font-weight: 600;
+    background: rgba(74,222,128,.15); border: 1px solid rgba(74,222,128,.4); border-radius: 8px;
+    padding: 3px 6px 3px 10px; font-size: 11px; color: #4ade80; font-weight: 700;
     display: flex; align-items: center; gap: 4px;
     cursor: grab;
 }
@@ -732,7 +732,7 @@
     color: #ff4444; transform: scale(1.25);
 }
 
-.piw-panel .piw-hint, #piw-autohunt-window .piw-hint { font-size: 12px; color: #9aa3bf; text-align: center; margin-top: 4px; }
+.piw-panel .piw-hint, #piw-autohunt-window .piw-hint { font-size: 12px; color: #cbd5e1; text-align: center; margin-top: 4px; }
 
 .piw-badge {
     display: inline-flex; align-items: center; gap: 4px;
@@ -843,15 +843,15 @@
 }
 .piw-modal-toolbar select:focus { outline: none; border-color: #ef4444; }
 .piw-modal-toolbar label:not(.piw-check) {
-    display: flex; align-items: center; gap: 5px; font-size: 12px; color: #9aa3bf; cursor: pointer;
-    padding: 5px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05);
-    transition: all .15s;
+    display: flex; align-items: center; gap: 5px; font-size: 12px; color: #e2e8f0; cursor: pointer;
+    padding: 5px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.06);
+    transition: all .15s; font-weight: 500;
 }
-.piw-modal-toolbar label:not(.piw-check):hover { border-color: #ef4444; color: #e0e4ef; }
+.piw-modal-toolbar label:not(.piw-check):hover { border-color: #ef4444; color: #fff; background: rgba(239,68,68,.15); }
 .piw-modal-toolbar label:not(.piw-check) input { accent-color: #ef4444; }
 .piw-modal-toolbar .piw-check input[type=checkbox]:checked { background: #ef4444; border-color: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.3); }
 .piw-modal-toolbar .piw-modal-count {
-    font-size: 11px; color: #9aa3bf; white-space: nowrap;
+    font-size: 12px; color: #cbd5e1; font-weight: 600; white-space: nowrap;
 }
 .piw-modal-body {
     flex: 1; overflow-y: auto; padding: 16px 20px; margin-bottom: 12px;
@@ -861,25 +861,25 @@
     gap: 10px;
 }
 .piw-poke-card {
-    background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); border-radius: 12px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 12px;
     padding: 10px 6px; cursor: pointer; text-align: center; transition: all .2s;
     position: relative;
 }
-.piw-poke-card:hover { border-color: rgba(239,68,68,.45); background: rgba(255,255,255,.08); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.4); }
-.piw-poke-card.selected { border-color: #4ade80; background: rgba(74,222,128,.15); box-shadow: 0 0 14px rgba(74,222,128,.2); }
+.piw-poke-card:hover { border-color: rgba(239,68,68,.45); background: rgba(255,255,255,.09); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.4); }
+.piw-poke-card.selected { border-color: #4ade80; background: rgba(74,222,128,.18); box-shadow: 0 0 14px rgba(74,222,128,.25); }
 .piw-poke-card .piw-poke-img {
     width: 56px; height: 56px; image-rendering: pixelated;
     margin: 0 auto 6px; display: block;
 }
 .piw-poke-card .piw-poke-num {
-    font-size: 9px; color: #9aa3bf;
+    font-size: 10px; color: #cbd5e1; font-weight: 600;
 }
 .piw-poke-card .piw-poke-name {
-    font-size: 11px; color: #e0e4ef; font-weight: 600;
+    font-size: 11.5px; color: #fff; font-weight: 700;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .piw-poke-card .piw-poke-level {
-    font-size: 9px; color: #f0c040;
+    font-size: 10px; color: #fde047; font-weight: 700;
 }
 .piw-poke-card .piw-poke-types {
     display: flex; gap: 3px; justify-content: center; margin-top: 4px;
@@ -974,28 +974,28 @@
 .piw-iw-bar-tag { width: 32px; font-size: 10.5px; font-weight: 700; color: #93a0e8; }
 .piw-iw-bar { flex: 1; height: 10px; background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; }
 .piw-iw-bar-fill { height: 100%; border-radius: 99px; }
-.piw-iw-bar-val { min-width: 64px; text-align: right; font-size: 10.5px; color: #c6cdf0; font-variant-numeric: tabular-nums; }
+.piw-iw-bar-val { min-width: 64px; text-align: right; font-size: 11px; color: #e2e8f0; font-weight: 600; font-variant-numeric: tabular-nums; }
 
-.piw-iw-card { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+.piw-iw-card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
 .piw-iw-card:last-child { margin-bottom: 0; }
-.piw-iw-sec { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #93a0e8; margin-bottom: 8px; }
-.piw-iw-sec small { text-transform: none; letter-spacing: 0; color: #7d86ad; font-weight: 600; }
+.piw-iw-sec { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #a5b4fc; margin-bottom: 8px; }
+.piw-iw-sec small { text-transform: none; letter-spacing: 0; color: #cbd5e1; font-weight: 600; }
 
 .piw-iw-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .piw-iw-stat { background: rgba(255,255,255,.05); border-radius: 8px; padding: 5px 2px 4px; text-align: center; border-top: 2px solid var(--c); }
-.piw-iw-stat-name { font-size: 10px; font-weight: 700; color: var(--c); letter-spacing: .5px; }
-.piw-iw-stat-val { font-size: 13px; font-weight: 700; color: #fff; margin-top: 2px; }
-.piw-iw-stat-base { font-size: 10px; color: #9aa3bf; margin-top: 3px; padding-top: 2px; border-top: 1px dashed rgba(255,255,255,.14); }
-.piw-iw-stat-base b { color: #e7ebf7; }
+.piw-iw-stat-name { font-size: 11px; font-weight: 700; color: var(--c); letter-spacing: .5px; }
+.piw-iw-stat-val { font-size: 13.5px; font-weight: 700; color: #fff; margin-top: 2px; }
+.piw-iw-stat-base { font-size: 11px; color: #cbd5e1; margin-top: 3px; padding-top: 2px; border-top: 1px dashed rgba(255,255,255,.16); font-weight: 500; }
+.piw-iw-stat-base b { color: #fff; font-weight: 700; }
 
 .piw-iw-eff-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
-.piw-iw-eff-label { min-width: 75px; font-size: 11px; font-weight: 600; }
+.piw-iw-eff-label { min-width: 75px; font-size: 11.5px; font-weight: 600; color: #e2e8f0; }
 
 .piw-iw-iv-row { display: flex; align-items: center; gap: 7px; margin: 5px 0; }
-.piw-iw-iv-name { width: 30px; font-size: 11px; font-weight: 700; }
-.piw-iw-iv-growth { width: 48px; text-align: right; font-size: 10px; color: #7d86ad; font-variant-numeric: tabular-nums; }
-.piw-iw-iv-val { min-width: 36px; text-align: center; background: rgba(255,255,255,.08); border-radius: 6px; padding: 1px 5px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.piw-iw-sum { margin-top: 8px; font-size: 11px; }
+.piw-iw-iv-name { width: 30px; font-size: 11.5px; font-weight: 700; }
+.piw-iw-iv-growth { width: 48px; text-align: right; font-size: 11px; color: #cbd5e1; font-weight: 600; font-variant-numeric: tabular-nums; }
+.piw-iw-iv-val { min-width: 36px; text-align: center; background: rgba(255,255,255,.1); border-radius: 6px; padding: 1px 5px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.piw-iw-sum { margin-top: 8px; font-size: 11.5px; font-weight: 600; }
 
 #piw-moves-window {
     position: fixed; z-index: 2147483000; width: 300px;
@@ -1052,10 +1052,10 @@
 .piw-tw-tab.active { color: #34d399; background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.35); box-shadow: 0 0 10px rgba(16,185,129,.2); }
 .piw-tw-body { padding: 12px; max-height: 75vh; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; margin-bottom: 12px; }
 .piw-tw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
-.piw-tw-stat { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 8px 10px; }
-.piw-tw-stat-title { font-size: 10.5px; font-weight: 700; color: #9aa3bf; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 4px; }
-.piw-tw-stat-val { font-size: 15px; font-weight: 700; color: #fff; margin-top: 2px; }
-.piw-tw-stat-sub { font-size: 10px; color: #7d86ad; margin-top: 2px; }
+.piw-tw-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 9px 10px; }
+.piw-tw-stat-title { font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 4px; }
+.piw-tw-stat-val { font-size: 15px; font-weight: 700; color: #fff; margin-top: 3px; }
+.piw-tw-stat-sub { font-size: 11.5px; font-weight: 500; color: #e2e8f0; margin-top: 3px; line-height: 1.3; }
 .piw-tw-history-item { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px; margin-bottom: 8px; position: relative; }
 .piw-tw-history-item:hover { border-color: rgba(132,144,255,.3); background: rgba(255,255,255,.06); }
 .piw-tw-history-item.best-exp { border-color: rgba(52,211,153,.5); box-shadow: 0 0 10px rgba(52,211,153,.15); }
@@ -1560,36 +1560,36 @@
                         <div id="piw-hub-leader" style="font-size:12px;font-weight:700;color:#fff">👑 Líder: —</div>
                         <div id="piw-hub-status"></div>
                     </div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7d86ad;margin-top:5px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:#cbd5e1;margin-top:5px">
                         <span>📍 Local: <b id="piw-hub-route" style="color:#a5b4fc">—</b></span>
-                        <span>🎯 Alvo: <b id="piw-hub-target" style="color:#34d399">—</b></span>
+                        <span>🎯 Alvo: <b id="piw-hub-target" style="color:#4ade80">—</b></span>
                     </div>
                 </div>
 
-                <div class="piw-card-label" style="margin-bottom:6px">CENTRAL DE FERRAMENTAS</div>
+                <div class="piw-card-label" style="margin-bottom:6px;font-size:11px;font-weight:700;color:#cbd5e1;letter-spacing:.5px">CENTRAL DE FERRAMENTAS</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                     <button class="piw-hub-btn" id="piw-open-autohunt" style="border-top:2px solid #ef4444">
                         <div style="font-size:18px;margin-bottom:2px">🎯</div>
-                        <div style="font-weight:700;font-size:12px;color:#fff">Auto Hunt</div>
-                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px" id="piw-hub-ah-sub">Controle de Caça</div>
+                        <div style="font-weight:700;font-size:12.5px;color:#fff">Auto Hunt</div>
+                        <div style="font-size:10.5px;color:#cbd5e1;margin-top:2px;font-weight:500" id="piw-hub-ah-sub">Controle de Caça</div>
                     </button>
 
                     <button class="piw-hub-btn" id="piw-open-analyzer" style="border-top:2px solid #10b981">
                         <div style="font-size:18px;margin-bottom:2px">⏱️</div>
-                        <div style="font-weight:700;font-size:12px;color:#fff">Hunt Analyzer</div>
-                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px">XP, Loot & Histórico</div>
+                        <div style="font-weight:700;font-size:12.5px;color:#fff">Hunt Analyzer</div>
+                        <div style="font-size:10.5px;color:#cbd5e1;margin-top:2px;font-weight:500">XP, Loot & Histórico</div>
                     </button>
 
                     <button class="piw-hub-btn" id="piw-open-ivs" style="border-top:2px solid #8b5cf6">
                         <div style="font-size:18px;margin-bottom:2px">📊</div>
-                        <div style="font-weight:700;font-size:12px;color:#fff">IVs & Stats</div>
-                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px">Status do Pokémon</div>
+                        <div style="font-weight:700;font-size:12.5px;color:#fff">IVs & Stats</div>
+                        <div style="font-size:10.5px;color:#cbd5e1;margin-top:2px;font-weight:500">Status do Pokémon</div>
                     </button>
 
                     <button class="piw-hub-btn" id="piw-open-moves" style="border-top:2px solid #06b6d4">
                         <div style="font-size:18px;margin-bottom:2px">⚔️</div>
-                        <div style="font-weight:700;font-size:12px;color:#fff">Moves</div>
-                        <div style="font-size:9.5px;color:#7d86ad;margin-top:2px">Ataques do time</div>
+                        <div style="font-weight:700;font-size:12.5px;color:#fff">Moves</div>
+                        <div style="font-size:10.5px;color:#cbd5e1;margin-top:2px;font-weight:500">Ataques do time</div>
                     </button>
                 </div>
             </div>
@@ -2521,8 +2521,8 @@
 
         if (pokemonMoves.length === 0 && takenMovesList.length === 0) {
             body.innerHTML = `
-                <div class="piw-mw-sub" style="margin-bottom:6px">⚔ Moves de ${name} (Lv ${level})</div>
-                <div style="color:#aab3d6;padding:12px 6px;text-align:center">
+                <div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de ${name} (Lv ${level})</div>
+                <div style="color:#cbd5e1;padding:12px 6px;text-align:center;font-size:11.5px;line-height:1.4">
                     Ainda não vi os moves deste pokémon.<br>
                     Deixe-o batalhar — os golpes usados e o dano aparecem aqui automaticamente.
                 </div>
@@ -2542,30 +2542,30 @@
 
             return `
                 <div class="piw-mw-move ${isCurrent ? 'piw-mw-active' : ''}">
-                    <span class="piw-mw-move-name">
+                    <span class="piw-mw-move-name" style="font-size:12px;font-weight:600">
                         ${isCurrent ? '▶ ' : ''}${m.name}
-                        ${m.learnLevel != null ? `<span class="piw-mw-move-lv">Nv ${m.learnLevel}</span>` : ''}
+                        ${m.learnLevel != null ? `<span class="piw-mw-move-lv" style="font-size:10px;font-weight:700">Nv ${m.learnLevel}</span>` : ''}
                         ${getMoveClassBadge(m.category)}
                     </span>
                     <span class="piw-mw-move-meta">
-                        ${bgType ? `<span class="piw-iw-type" style="background:${bgType};font-size:9.5px;padding:1px 6px">${ptType}</span>` : ''}
-                        ${m.power != null ? `<span style="color:#aab3d6;font-size:10.5px">poder ${m.power}</span>` : ''}
+                        ${bgType ? `<span class="piw-iw-type" style="background:${bgType};font-size:10px;padding:1px 6px;font-weight:700">${ptType}</span>` : ''}
+                        ${m.power != null ? `<span style="color:#cbd5e1;font-size:11px;font-weight:600">poder ${m.power}</span>` : ''}
                         ${dmgVal != null ? `
-                            <span style="color:${isTaken ? '#f87171' : '#ffd54a'};font-weight:700">
+                            <span style="color:${isTaken ? '#fca5a5' : '#fde047'};font-weight:700;font-size:12px">
                                 ${isTaken ? '🛡' : '💥'} ${Number(dmgVal).toLocaleString('pt-BR')}
                             </span>
-                            ${effTxt ? `<span style="color:#aab3d6;font-size:10.5px">${effTxt}</span>` : ''}
+                            ${effTxt ? `<span style="color:#cbd5e1;font-size:11px;font-weight:600">${effTxt}</span>` : ''}
                         ` : ''}
                     </span>
                 </div>
             `;
         };
 
-        let html = `<div class="piw-mw-sub" style="margin-bottom:6px">⚔ Moves de <b>${name}</b> (Lv ${level})</div>`;
+        let html = `<div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de <b>${name}</b> (Lv ${level})</div>`;
         html += pokemonMoves.map(m => renderMoveItem(m, false)).join('');
 
         if (takenMovesList.length > 0) {
-            html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px">🛡 GOLPES RECEBIDOS <small style="color:#7d86ad;text-transform:none;letter-spacing:0">· nesta hunt</small></div>`;
+            html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px;font-size:12px;color:#a5b4fc;font-weight:700">🛡 GOLPES RECEBIDOS <small style="color:#cbd5e1;text-transform:none;letter-spacing:0;font-size:11px;font-weight:500">· nesta hunt</small></div>`;
             html += takenMovesList.map(m => renderMoveItem(m, true)).join('');
         }
 
@@ -3107,10 +3107,10 @@
                                 <div style="font-size:12px;font-weight:700;color:#60a5fa">${Number(item.killsPerHour || 0).toLocaleString('pt-BR')}/h</div>
                             </div>
                         </div>
-                        <div style="display:flex;justify-content:space-between;font-size:9.5px;color:#7d86ad;margin-top:4px;padding:0 4px">
+                        <div style="display:flex;justify-content:space-between;font-size:11px;color:#cbd5e1;margin-top:4px;padding:0 4px">
                             <span>Loot: <b style="color:#facc15">$${Number(item.lootGained || 0).toLocaleString('pt-BR')}</b></span>
-                            <span>Supply: <b style="color:#f87171">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
-                            <span>Saldo: <b style="color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
+                            <span>Supply: <b style="color:#fca5a5">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
+                            <span>Saldo: <b style="color:${isNetPositive ? '#86efac' : '#fca5a5'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
                         </div>
                     </div>
                 `;
@@ -3198,12 +3198,12 @@
             <div class="piw-card" style="margin-bottom:8px">
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <div>
-                        <div style="font-weight:700;font-size:13px;color:#fff">${locationTitle}</div>
-                        <div style="font-size:11px;color:#9aa3bf;margin-top:2px">👑 ${cleanPokemonName(leaderName || '?')} <span style="color:#60a5fa;font-weight:600">Lv. ${leaderLevel || 1}</span></div>
+                        <div style="font-weight:700;font-size:13.5px;color:#fff">${locationTitle}</div>
+                        <div style="font-size:11.5px;color:#e2e8f0;margin-top:2px">👑 ${cleanPokemonName(leaderName || '?')} <span style="color:#93c5fd;font-weight:700">Lv. ${leaderLevel || 1}</span></div>
                     </div>
                     <div style="text-align:right">
-                        <div style="font-size:13px;font-weight:700;color:${timerColor};font-variant-numeric:tabular-nums">${isPaused && elapsedSec > 0 ? '⏸️ ' : ''}${formattedTime}</div>
-                        <div style="font-size:9.5px;color:${isPaused && elapsedSec > 0 ? '#f87171' : '#7d86ad'}">${statusLabel}</div>
+                        <div style="font-size:13.5px;font-weight:700;color:${timerColor};font-variant-numeric:tabular-nums">${isPaused && elapsedSec > 0 ? '⏸️ ' : ''}${formattedTime}</div>
+                        <div style="font-size:10.5px;font-weight:600;color:${isPaused && elapsedSec > 0 ? '#fca5a5' : '#cbd5e1'}">${statusLabel}</div>
                     </div>
                 </div>
             </div>
@@ -3246,14 +3246,14 @@
                 </div>
                 <div class="piw-tw-stat" style="border-top:2px solid #60a5fa">
                     <div class="piw-tw-stat-title">🎯 PRÓX. NÍVEL</div>
-                    <div class="piw-tw-stat-val" style="font-size:12.5px;color:#93c5fd;margin-top:4px">${etaVal}</div>
+                    <div class="piw-tw-stat-val" style="font-size:13px;color:#93c5fd;margin-top:3px">${etaVal}</div>
                     <div class="piw-tw-stat-sub">${etaSub}</div>
                 </div>
             </div>
 
-            <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 12px;display:flex;justify-content:space-between;margin-bottom:8px;font-size:11px">
-                <span>⚔ Derrotados: <b style="color:#60a5fa">${huntSession.kills}</b> <small style="color:#7d86ad">(${killsPerHour}/h)</small></span>
-                <span>🔴 Capturas: <b style="color:#4ade80">${huntSession.caps}</b></span>
+            <div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px 12px;display:flex;justify-content:space-between;margin-bottom:8px;font-size:11.5px;color:#e2e8f0">
+                <span>⚔ Derrotados: <b style="color:#93c5fd">${huntSession.kills}</b> <span style="color:#cbd5e1;font-weight:600">(${killsPerHour}/h)</span></span>
+                <span>🔴 Capturas: <b style="color:#86efac">${huntSession.caps}</b></span>
             </div>
 
             <div style="display:flex;gap:6px">
