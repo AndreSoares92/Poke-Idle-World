@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.4.7
+// @version      3.4.8
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.4.7';
+    const SCRIPT_VERSION = '3.4.8';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -1244,17 +1244,22 @@
 .piw-cw-dot { width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 10px #fbbf24; }
 .piw-cw-close { cursor: pointer; color: #fde68a; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-cw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-cw-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
-.piw-cw-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.piw-cw-body { padding: 12px; display: flex; flex-direction: column; overflow: hidden; flex: 1 1 auto; min-height: 0; }
+.piw-cw-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; flex-shrink: 0; }
 .piw-cw-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 8px 6px; text-align: center; }
 .piw-cw-stat-title { font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: .5px; }
 .piw-cw-stat-val { font-size: 15px; font-weight: 700; color: #fff; margin-top: 2px; }
-.piw-cw-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.piw-cw-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-shrink: 0; }
 .piw-cw-search { flex: 1; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 500; }
 .piw-cw-search:focus { outline: none; border-color: #f59e0b; }
 .piw-cw-btn { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: #cbd5e1; font-size: 11.5px; font-weight: 700; padding: 5px 9px; border-radius: 8px; cursor: pointer; transition: all .15s; white-space: nowrap; }
 .piw-cw-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
 .piw-cw-btn.active { background: rgba(245,158,11,.25); border-color: rgba(245,158,11,.5); color: #fbbf24; font-weight: 800; }
+.piw-cw-qual-bar { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0 6px; margin-bottom: 6px; align-items: center; flex-shrink: 0; }
+.piw-cw-qual-pill { padding: 4px 9px; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s ease; border: 1px solid transparent; white-space: nowrap; flex-shrink: 0; user-select: none; }
+.piw-cw-qual-pill:hover { filter: brightness(1.25); transform: translateY(-1px); }
+.piw-cw-qual-pill.active { box-shadow: 0 0 8px currentColor; font-weight: 800; }
+.piw-cw-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .piw-cw-item { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; transition: all .15s; position: relative; }
 .piw-cw-item:hover { background: rgba(255,255,255,.07); border-color: rgba(245,158,11,.35); }
 .piw-cw-item.shiny { border-color: rgba(251,191,36,.5); background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(245,158,11,.04)); box-shadow: 0 0 12px rgba(251,191,36,.15); }
@@ -1268,11 +1273,7 @@
 .piw-cw-badge { font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: rgba(255,255,255,.08); color: #e2e8f0; }
 .piw-cw-meta { text-align: right; flex-shrink: 0; }
 .piw-cw-val { font-size: 13.5px; font-weight: 700; color: #4ade80; }
-.piw-cw-time { font-size: 11px; font-weight: 600; color: #cbd5e1; margin-top: 3px; }
-.piw-cw-qual-bar { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0 6px; margin-bottom: 6px; align-items: center; }
-.piw-cw-qual-pill { padding: 4px 9px; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s ease; border: 1px solid transparent; white-space: nowrap; flex-shrink: 0; user-select: none; }
-.piw-cw-qual-pill:hover { filter: brightness(1.25); transform: translateY(-1px); }
-.piw-cw-qual-pill.active { box-shadow: 0 0 8px currentColor; font-weight: 800; }
+.piw-cw-time { font-size: 11px; font-weight: 600; color: #cbd5e1; }
 
 .piw-hub-btn {
     background: rgba(255,255,255,.04);
@@ -1388,6 +1389,19 @@
 }
 #piw-moves-window *::-webkit-scrollbar-thumb:hover, .piw-mw-body::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #22d3ee, #06b6d4) !important;
+}
+
+/* 6. Log de Capturas (Âmbar / Dourado) */
+#piw-captures-window, #piw-captures-window *, .piw-cw-body, .piw-cw-list {
+    scrollbar-color: rgba(245, 158, 11, 0.5) rgba(20, 24, 38, 0.4) !important;
+}
+#piw-captures-window *::-webkit-scrollbar-thumb, .piw-cw-body::-webkit-scrollbar-thumb, .piw-cw-list::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #f59e0b, #d97706) !important;
+    border-radius: 99px !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+#piw-captures-window *::-webkit-scrollbar-thumb:hover, .piw-cw-body::-webkit-scrollbar-thumb:hover, .piw-cw-list::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #fbbf24, #f59e0b) !important;
 }
 
 .piw-win-resize {
