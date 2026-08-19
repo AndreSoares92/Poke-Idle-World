@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.1.3
-// @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats e Analisador de Moves.
+// @version      3.4.2
+// @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
 // @run-at       document-start
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.1.3';
+    const SCRIPT_VERSION = '3.4.2';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -358,15 +358,15 @@
     const QUALITY_EXP = {hp:.95,atk:.8,def:.8,spAtk:.8,spDef:.8,speed:.95};
 
     const QUALITY_TIERS = [
-        {min:3,name:"Divina",color:"#DBEFFF"},
-        {min:2.6,name:"Antiga",color:"#B8860B"},
-        {min:1.8,name:"Mítica",color:"#6A0DAD"},
-        {min:1.7,name:"Lendária",color:"#FF8C3C"},
-        {min:1.5,name:"Épica",color:"#F0C040"},
-        {min:1.3,name:"Rara",color:"#B06CFF"},
-        {min:1.1,name:"Incomum",color:"#7FD4FF"},
-        {min:1,name:"Comum",color:"#63D873"},
-        {min:-Infinity,name:"Fraca",color:"#9AA6B3"}
+        { min: 3, name: "Divina", color: "#e0f2fe" },
+        { min: 2.6, name: "Antiga", color: "#d97706" },
+        { min: 1.8, name: "Mítica", color: "#ec4899" },
+        { min: 1.7, name: "Lendária", color: "#f97316" },
+        { min: 1.5, name: "Épica", color: "#facc15" },
+        { min: 1.3, name: "Rara", color: "#a855f7" },
+        { min: 1.1, name: "Incomum", color: "#38bdf8" },
+        { min: 1, name: "Comum", color: "#22c55e" },
+        { min: -Infinity, name: "Fraca", color: "#94a3b8" }
     ];
 
     function getBaseStatsForSpecies(speciesId) {
@@ -376,42 +376,72 @@
     }
 
     function calculateStatFormula(base, iv, level, qualPow) {
-        return Math.max(1, Math.round((base + 2 * iv) * level / 100 * qualPow));
+        return Math.max(0, Math.floor((base + 2 * iv) * level / 100 * qualPow));
+    }
+
+    function calculateMaxHpFormula(baseHp, iv, level, qualPow) {
+        return Math.max(1, Math.floor((baseHp + 2 * iv) * level / 100 * qualPow) + level + 22);
     }
 
     function computeExactIVs(pokemon) {
-        const quality = Number(pokemon.quality);
-        const baseStats = getBaseStatsForSpecies(pokemon.speciesId || pokemon.pokeId);
-        if (!baseStats || !Number.isFinite(quality) || quality <= 0) return null;
+        if (!pokemon) return null;
+        const quality = Number(pokemon.quality || 1);
+        const resolved = resolvePokemonSpecies(pokemon.name, pokemon.speciesId || pokemon.pokeId);
+        const baseStats = getBaseStatsForSpecies(resolved.speciesId || pokemon.speciesId || pokemon.pokeId);
+        if (!baseStats) return null;
 
-        const level = Number(pokemon.level);
+        const level = Number(pokemon.level || 1);
         const statsObj = pokemon.stats;
-        if (!statsObj || !Number.isFinite(level) || level <= 0) return null;
+        const ivTotal = Number(pokemon.ivTotal);
 
         const result = {};
-        for (const key of STAT_KEYS) {
-            const qualPow = Math.pow(quality, QUALITY_EXP[key]);
-            const currentVal = Number(statsObj[key]);
-            let candidates = [];
-            let minDiff = Infinity;
 
-            if (Number.isFinite(currentVal)) {
-                for (let iv = 0; iv <= 32; iv++) {
-                    const diff = Math.abs(calculateStatFormula(baseStats[key], iv, level, qualPow) - currentVal);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        candidates = [iv];
-                    } else if (diff === minDiff) {
-                        candidates.push(iv);
+        if (statsObj && Object.keys(statsObj).length > 0) {
+            for (const key of STAT_KEYS) {
+                const qualPow = Math.pow(quality, QUALITY_EXP[key]);
+                const currentVal = Number(statsObj[key]);
+                let candidates = [];
+                let minDiff = Infinity;
+
+                if (Number.isFinite(currentVal)) {
+                    for (let iv = 0; iv <= 32; iv++) {
+                        const diff = Math.abs(calculateStatFormula(baseStats[key], iv, level, qualPow) - currentVal);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            candidates = [iv];
+                        } else if (diff === minDiff) {
+                            candidates.push(iv);
+                        }
                     }
                 }
+                if (candidates.length === 0) candidates = [0];
+                result[key] = { min: candidates[0], max: candidates[candidates.length - 1] };
             }
-            if (candidates.length === 0) candidates = [0];
-            result[key] = { min: candidates[0], max: candidates[candidates.length - 1] };
+        } else if (Number.isFinite(ivTotal) && ivTotal > 0) {
+            const avgIV = Math.round(ivTotal / 6);
+            const minIV = Math.max(0, Math.min(31, avgIV - 4));
+            const maxIV = Math.max(0, Math.min(31, avgIV + 4));
+            for (const key of STAT_KEYS) {
+                result[key] = { min: minIV, max: maxIV };
+            }
+        } else {
+            for (const key of STAT_KEYS) {
+                result[key] = { min: 15, max: 15 };
+            }
         }
 
-        const ivTotal = Number(pokemon.ivTotal);
-        if (Number.isFinite(ivTotal)) {
+        if (Number.isFinite(ivTotal) && ivTotal > 0) {
+            const avgIV = Math.round(ivTotal / 6);
+            for (const key of STAT_KEYS) {
+                if (result[key].min === 0 && result[key].max >= 31) {
+                    const span = Math.min(5, Math.max(2, Math.round((186 - ivTotal) / 18)));
+                    result[key] = {
+                        min: Math.max(0, avgIV - span),
+                        max: Math.min(31, avgIV + span)
+                    };
+                }
+            }
+
             for (let pass = 0; pass < 6; pass++) {
                 let changed = false;
                 for (const key of STAT_KEYS) {
@@ -532,6 +562,39 @@
             .replace(/\s*\[\s*shiny\s*\]/gi, '')
             .replace(/\s{2,}/g, ' ')
             .trim();
+    }
+
+    function resolvePokemonSpecies(name, rawSpeciesId) {
+        const numId = Number(rawSpeciesId);
+        if (Number.isFinite(numId) && numId > 0 && BASE_STATS_TABLE[numId]) {
+            const c = creatures.find(cr => (cr.pokeId || cr.id) === numId);
+            return { speciesId: numId, creature: c, baseName: c?.name || name };
+        }
+
+        if (!name) return { speciesId: 0, creature: null, baseName: '' };
+
+        const clean = cleanPokemonName(name);
+
+        // 1. Match direto em creatures
+        let c = creatures.find(cr => cr.name?.toLowerCase() === clean.toLowerCase());
+        if (c) return { speciesId: c.pokeId || c.id, creature: c, baseName: c.name };
+
+        // 2. Extrai espécie base removendo prefixos de variantes/bosses (ex: Brave Clefable -> Clefable, Ancient Meganium -> Meganium)
+        const words = clean.split(/\s+/);
+        if (words.length > 1) {
+            for (let i = 1; i < words.length; i++) {
+                const sub = words.slice(i).join(' ');
+                c = creatures.find(cr => cr.name?.toLowerCase() === sub.toLowerCase());
+                if (c) return { speciesId: c.pokeId || c.id, creature: c, baseName: c.name };
+            }
+        }
+
+        // 3. Match na última palavra
+        const lastWord = words[words.length - 1];
+        c = creatures.find(cr => cr.name?.toLowerCase() === lastWord.toLowerCase());
+        if (c) return { speciesId: c.pokeId || c.id, creature: c, baseName: c.name };
+
+        return { speciesId: 0, creature: null, baseName: clean };
     }
 
     function normalizeHuntKey(str) {
@@ -1032,26 +1095,65 @@
 .piw-mw-party-slot .piw-slot-lv { position: absolute; bottom: 0px; right: 2px; font-size: 8px; font-weight: 700; color: #cbd5e1; text-shadow: 0 1px 2px #000; }
 .piw-mw-party-slot .piw-slot-leader { position: absolute; top: -4px; left: -2px; font-size: 10px; line-height: 1; }
 
+.piw-iw-body { scrollbar-width: thin; scrollbar-color: rgba(129,140,248,.5) transparent; }
+.piw-mw-body, .piw-mw-party-bar { scrollbar-width: thin; scrollbar-color: rgba(6,182,212,.5) transparent; }
+.piw-tw-body { scrollbar-width: thin; scrollbar-color: rgba(16,185,129,.5) transparent; }
+.piw-ah-body { scrollbar-width: thin; scrollbar-color: rgba(239,68,68,.5) transparent; }
+.piw-cw-body, .piw-cw-list, .piw-cw-qual-bar { scrollbar-width: thin; scrollbar-color: rgba(245,158,11,.5) transparent; }
+.piw-modal-body, .piw-panel-inner, [id^="piw-"] { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.25) transparent; }
+
 .piw-iw-body::-webkit-scrollbar,
 .piw-mw-body::-webkit-scrollbar,
+.piw-mw-party-bar::-webkit-scrollbar,
 .piw-tw-body::-webkit-scrollbar,
 .piw-ah-body::-webkit-scrollbar,
-.piw-modal-body::-webkit-scrollbar { width: 5px; height: 5px; }
+.piw-cw-body::-webkit-scrollbar,
+.piw-cw-list::-webkit-scrollbar,
+.piw-cw-qual-bar::-webkit-scrollbar,
+.piw-modal-body::-webkit-scrollbar,
+.piw-panel-inner::-webkit-scrollbar,
+[id^="piw-"] *::-webkit-scrollbar { width: 5px; height: 5px; }
+
 .piw-iw-body::-webkit-scrollbar-track,
 .piw-mw-body::-webkit-scrollbar-track,
+.piw-mw-party-bar::-webkit-scrollbar-track,
 .piw-tw-body::-webkit-scrollbar-track,
 .piw-ah-body::-webkit-scrollbar-track,
-.piw-modal-body::-webkit-scrollbar-track { background: transparent; }
-.piw-iw-body::-webkit-scrollbar-thumb,
+.piw-cw-body::-webkit-scrollbar-track,
+.piw-cw-list::-webkit-scrollbar-track,
+.piw-cw-qual-bar::-webkit-scrollbar-track,
+.piw-modal-body::-webkit-scrollbar-track,
+.piw-panel-inner::-webkit-scrollbar-track,
+[id^="piw-"] *::-webkit-scrollbar-track { background: transparent; }
+
+/* Scrollbar Thumbs temáticos para cada janela */
+.piw-iw-body::-webkit-scrollbar-thumb { background: rgba(129,140,248,.45); border-radius: 4px; }
+.piw-iw-body::-webkit-scrollbar-thumb:hover { background: rgba(165,180,252,.85); }
+
 .piw-mw-body::-webkit-scrollbar-thumb,
-.piw-tw-body::-webkit-scrollbar-thumb,
-.piw-ah-body::-webkit-scrollbar-thumb,
-.piw-modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
-.piw-iw-body::-webkit-scrollbar-thumb:hover,
+.piw-mw-party-bar::-webkit-scrollbar-thumb { background: rgba(6,182,212,.45); border-radius: 4px; }
 .piw-mw-body::-webkit-scrollbar-thumb:hover,
-.piw-tw-body::-webkit-scrollbar-thumb:hover,
-.piw-ah-body::-webkit-scrollbar-thumb:hover,
-.piw-modal-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.35); }
+.piw-mw-party-bar::-webkit-scrollbar-thumb:hover { background: rgba(34,211,238,.85); }
+
+.piw-tw-body::-webkit-scrollbar-thumb { background: rgba(16,185,129,.45); border-radius: 4px; }
+.piw-tw-body::-webkit-scrollbar-thumb:hover { background: rgba(52,211,153,.85); }
+
+.piw-ah-body::-webkit-scrollbar-thumb { background: rgba(239,68,68,.45); border-radius: 4px; }
+.piw-ah-body::-webkit-scrollbar-thumb:hover { background: rgba(248,113,113,.85); }
+
+.piw-cw-body::-webkit-scrollbar-thumb,
+.piw-cw-list::-webkit-scrollbar-thumb,
+.piw-cw-qual-bar::-webkit-scrollbar-thumb { background: rgba(245,158,11,.45); border-radius: 4px; }
+.piw-cw-body::-webkit-scrollbar-thumb:hover,
+.piw-cw-list::-webkit-scrollbar-thumb:hover,
+.piw-cw-qual-bar::-webkit-scrollbar-thumb:hover { background: rgba(251,191,36,.85); }
+
+.piw-modal-body::-webkit-scrollbar-thumb,
+.piw-panel-inner::-webkit-scrollbar-thumb,
+[id^="piw-"] *::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 4px; }
+.piw-modal-body::-webkit-scrollbar-thumb:hover,
+.piw-panel-inner::-webkit-scrollbar-thumb:hover,
+[id^="piw-"] *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.45); }
 
 #piw-tracker-window {
     position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
@@ -1089,10 +1191,10 @@
 .piw-tw-history-item { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px; margin-bottom: 8px; position: relative; }
 .piw-tw-history-item:hover { border-color: rgba(132,144,255,.3); background: rgba(255,255,255,.06); }
 .piw-tw-history-item.best-exp { border-color: rgba(52,211,153,.5); box-shadow: 0 0 10px rgba(52,211,153,.15); }
-.piw-tw-badge-best { background: linear-gradient(135deg,#10b981,#059669); color: #fff; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; display: inline-block; margin-left: 6px; }
-.piw-tw-sort-btn { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); color: #9aa3bf; font-size: 10px; font-weight: 600; padding: 3px 7px; border-radius: 6px; cursor: pointer; transition: all .15s; }
-.piw-tw-sort-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
-.piw-tw-sort-btn.active { background: rgba(16, 185, 129, 0.25); border-color: rgba(52, 211, 153, 0.5); color: #34d399; }
+.piw-tw-badge-best { background: linear-gradient(135deg,#10b981,#059669); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px; display: inline-block; margin-left: 6px; }
+.piw-tw-sort-btn { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 6px; cursor: pointer; transition: all .15s; }
+.piw-tw-sort-btn:hover { background: rgba(255,255,255,.14); color: #fff; }
+.piw-tw-sort-btn.active { background: rgba(16, 185, 129, 0.25); border-color: rgba(52, 211, 153, 0.6); color: #34d399; font-weight: 800; }
 
 #piw-autohunt-window {
     position: fixed; z-index: 2147483000; width: 340px; min-width: 320px; min-height: 200px;
@@ -1118,6 +1220,59 @@
 .piw-ah-close { cursor: pointer; color: #fca5a5; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-ah-close:hover { color: #fff; background: rgba(255,255,255,.15); }
 .piw-ah-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
+
+#piw-captures-window {
+    position: fixed; z-index: 2147483000; width: 340px; min-width: 320px; min-height: 200px;
+    display: none; flex-direction: column;
+    color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
+    font-size: 12px;
+    background: linear-gradient(165deg, rgba(20,24,38,.97), rgba(12,14,24,.97));
+    border: 1px solid rgba(245,158,11,.3); border-radius: 14px;
+    box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter: blur(10px); user-select: none;
+    overflow: hidden;
+}
+#piw-captures-window * { box-sizing: border-box; }
+.piw-cw-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; cursor: grab; border-bottom: 1px solid rgba(245,158,11,.22);
+    background: linear-gradient(135deg, rgba(245,158,11,.38), rgba(217,119,6,.22));
+    font-weight: 700; font-size: 13px; letter-spacing: .4px;
+}
+.piw-cw-head:active { cursor: grabbing; }
+.piw-cw-title { display: flex; align-items: center; gap: 8px; }
+.piw-cw-dot { width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 10px #fbbf24; }
+.piw-cw-close { cursor: pointer; color: #fde68a; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.piw-cw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
+.piw-cw-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-cw-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.piw-cw-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 8px 6px; text-align: center; }
+.piw-cw-stat-title { font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: .5px; }
+.piw-cw-stat-val { font-size: 15px; font-weight: 700; color: #fff; margin-top: 2px; }
+.piw-cw-toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.piw-cw-search { flex: 1; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 500; }
+.piw-cw-search:focus { outline: none; border-color: #f59e0b; }
+.piw-cw-btn { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: #cbd5e1; font-size: 11.5px; font-weight: 700; padding: 5px 9px; border-radius: 8px; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.piw-cw-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+.piw-cw-btn.active { background: rgba(245,158,11,.25); border-color: rgba(245,158,11,.5); color: #fbbf24; font-weight: 800; }
+.piw-cw-item { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; transition: all .15s; position: relative; }
+.piw-cw-item:hover { background: rgba(255,255,255,.07); border-color: rgba(245,158,11,.35); }
+.piw-cw-item.shiny { border-color: rgba(251,191,36,.5); background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(245,158,11,.04)); box-shadow: 0 0 12px rgba(251,191,36,.15); }
+.piw-cw-item.inspected { border-color: #fbbf24 !important; box-shadow: 0 0 12px rgba(251,191,36,.5) !important; background: rgba(245,158,11,.18) !important; }
+.piw-cw-sprite { width: 40px; height: 40px; image-rendering: pixelated; object-fit: contain; flex-shrink: 0; background: rgba(0,0,0,.25); border-radius: 8px; padding: 2px; }
+.piw-cw-info { flex: 1; min-width: 0; }
+.piw-cw-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.piw-cw-name { font-size: 13.5px; font-weight: 700; color: #fff; }
+.piw-cw-lv { font-size: 11.5px; font-weight: 700; color: #fbbf24; }
+.piw-cw-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; align-items: center; }
+.piw-cw-badge { font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: rgba(255,255,255,.08); color: #e2e8f0; }
+.piw-cw-meta { text-align: right; flex-shrink: 0; }
+.piw-cw-val { font-size: 13.5px; font-weight: 700; color: #4ade80; }
+.piw-cw-time { font-size: 11px; font-weight: 600; color: #cbd5e1; margin-top: 3px; }
+.piw-cw-qual-bar { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0 6px; margin-bottom: 6px; align-items: center; }
+.piw-cw-qual-pill { padding: 4px 9px; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s ease; border: 1px solid transparent; white-space: nowrap; flex-shrink: 0; user-select: none; }
+.piw-cw-qual-pill:hover { filter: brightness(1.25); transform: translateY(-1px); }
+.piw-cw-qual-pill.active { box-shadow: 0 0 8px currentColor; font-weight: 800; }
 
 .piw-hub-btn {
     background: rgba(255,255,255,.04);
@@ -1268,6 +1423,96 @@
         el.addEventListener('mousedown', () => bringToFront(el));
     }
 
+    // Fechamento de janelas com ESC (da última aberta/focada para a primeira)
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' || e.keyCode === 27) {
+            // Se estiver em um input de busca ou texto, desfoca primeiro
+            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+                e.target.blur();
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            const openWindows = [];
+
+            // 1. Modais de alto nível
+            const movesModal = document.getElementById('piw-moves-detail-modal');
+            if (movesModal && movesModal.style.display !== 'none' && movesModal.offsetWidth > 0) {
+                openWindows.push({ el: movesModal, close: closeMovesDetailModal, z: parseInt(movesModal.style.zIndex) || 2147483500 });
+            }
+
+            const historyModal = document.getElementById('piw-history-modal');
+            if (historyModal && historyModal.style.display !== 'none' && historyModal.offsetWidth > 0) {
+                openWindows.push({ el: historyModal, close: closeHuntHistoryModal, z: parseInt(historyModal.style.zIndex) || 2147483500 });
+            }
+
+            const pokedexOverlay = document.getElementById('piw-pokedex-overlay');
+            if (pokedexOverlay && pokedexOverlay.style.display !== 'none' && pokedexOverlay.offsetWidth > 0) {
+                openWindows.push({
+                    el: pokedexOverlay,
+                    close: () => {
+                        const closeBtn = document.getElementById('piw-pokedex-close');
+                        if (closeBtn) closeBtn.click();
+                        else pokedexOverlay.style.display = 'none';
+                    },
+                    z: parseInt(pokedexOverlay.style.zIndex) || 2147483500
+                });
+            }
+
+            // 2. Janelas flutuantes
+            const capturesWin = document.getElementById('piw-captures-window');
+            if (capturesWin && capturesWin.style.display !== 'none' && capturesWin.offsetWidth > 0) {
+                openWindows.push({ el: capturesWin, close: closeCapturesWindow, z: parseInt(capturesWin.style.zIndex) || 2147483000 });
+            }
+
+            const movesWin = document.getElementById('piw-moves-window');
+            if (movesWin && movesWin.style.display !== 'none' && movesWin.offsetWidth > 0) {
+                openWindows.push({ el: movesWin, close: closeMovesWindow, z: parseInt(movesWin.style.zIndex) || 2147483000 });
+            }
+
+            const infoWin = document.getElementById('piw-info-window');
+            if (infoWin && infoWin.style.display !== 'none' && infoWin.offsetWidth > 0) {
+                openWindows.push({ el: infoWin, close: closeInfoWindow, z: parseInt(infoWin.style.zIndex) || 2147483000 });
+            }
+
+            const trackerWin = document.getElementById('piw-tracker-window');
+            if (trackerWin && trackerWin.style.display !== 'none' && trackerWin.offsetWidth > 0) {
+                openWindows.push({ el: trackerWin, close: closeTrackerWindow, z: parseInt(trackerWin.style.zIndex) || 2147483000 });
+            }
+
+            const autohuntWin = document.getElementById('piw-autohunt-window');
+            if (autohuntWin && autohuntWin.style.display !== 'none' && autohuntWin.offsetWidth > 0) {
+                openWindows.push({ el: autohuntWin, close: closeAutoHuntWindow, z: parseInt(autohuntWin.style.zIndex) || 2147483000 });
+            }
+
+            // 3. Painel Principal (Hub Central)
+            const mainPanel = document.getElementById('piw-panel');
+            if (mainPanel && mainPanel.style.display !== 'none' && mainPanel.offsetWidth > 0) {
+                openWindows.push({
+                    el: mainPanel,
+                    close: () => {
+                        const closeBtn = document.getElementById('piw-close-panel');
+                        if (closeBtn) closeBtn.click();
+                        else mainPanel.style.display = 'none';
+                    },
+                    z: parseInt(mainPanel.style.zIndex) || 2147482000
+                });
+            }
+
+            if (openWindows.length > 0) {
+                // Ordena da mais recentemente aberta/focada (maior z-index) para a primeira
+                openWindows.sort((a, b) => b.z - a.z);
+                const topWindow = openWindows[0];
+                if (topWindow && typeof topWindow.close === 'function') {
+                    topWindow.close();
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        }
+    }, true);
+
     function makeDraggable(win, handle, storageKey) {
         if (!win || !handle) return;
         let isDragging = false;
@@ -1375,12 +1620,14 @@
         const movesWin = document.getElementById('piw-moves-window');
         const trackerWin = document.getElementById('piw-tracker-window');
         const autohuntWin = document.getElementById('piw-autohunt-window');
+        const capturesWin = document.getElementById('piw-captures-window');
         const modalEl = document.querySelector('.piw-modal');
         if (panelEl) panelEl.style.opacity = String(val);
         if (infoWin) infoWin.style.opacity = String(val);
         if (movesWin) movesWin.style.opacity = String(val);
         if (trackerWin) trackerWin.style.opacity = String(val);
         if (autohuntWin) autohuntWin.style.opacity = String(val);
+        if (capturesWin) capturesWin.style.opacity = String(val);
         if (modalEl) modalEl.style.opacity = String(val);
     }
 
@@ -1621,6 +1868,14 @@
                         <div style="font-weight:700;font-size:12.5px;color:#fff">Moves</div>
                         <div style="font-size:10.5px;color:#cbd5e1;margin-top:2px;font-weight:500">Ataques do time</div>
                     </button>
+
+                    <button class="piw-hub-btn" id="piw-open-captures" style="border-top:2px solid #f59e0b;grid-column:span 2;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;padding:8px">
+                        <div style="font-size:18px">📦</div>
+                        <div style="text-align:left">
+                            <div style="font-weight:700;font-size:12.5px;color:#fff">Log de Capturas</div>
+                            <div style="font-size:10.5px;color:#cbd5e1;margin-top:1px;font-weight:500" id="piw-hub-caps-sub">Histórico de Pokémon</div>
+                        </div>
+                    </button>
                 </div>
             </div>
         `;
@@ -1700,6 +1955,7 @@
         panel.querySelector('#piw-open-analyzer').addEventListener('click', toggleTrackerWindow);
         panel.querySelector('#piw-open-ivs').addEventListener('click', toggleInfoWindow);
         panel.querySelector('#piw-open-moves').addEventListener('click', toggleMovesWindow);
+        panel.querySelector('#piw-open-captures').addEventListener('click', toggleCapturesWindow);
 
         document.body.appendChild(panel);
 
@@ -1751,6 +2007,7 @@
         const hubRoute = document.getElementById('piw-hub-route');
         const hubTarget = document.getElementById('piw-hub-target');
         const hubAhSub = document.getElementById('piw-hub-ah-sub');
+        const hubCapsSub = document.getElementById('piw-hub-caps-sub');
 
         if (hubLeader) hubLeader.textContent = `👑 Líder: ${leaderName ? `${leaderName} (Lv. ${leaderLevel || '?'})` : '—'}`;
         if (hubStatus) {
@@ -1761,6 +2018,11 @@
         if (hubRoute) hubRoute.textContent = currentRoute || '—';
         if (hubTarget) hubTarget.textContent = huntingPokemon || (selectedPokemon.length > 0 ? selectedPokemon[0] : 'Nenhum');
         if (hubAhSub) hubAhSub.textContent = `${enabled ? '▶ Caçando' : '⏸ Pausado'} · ${selectedPokemon.length} alvo(s)`;
+        if (hubCapsSub) {
+            const totalC = captureLogs ? captureLogs.length : 0;
+            const shinyC = captureLogs ? captureLogs.filter(p => p.shiny).length : 0;
+            hubCapsSub.textContent = `${totalC} capturado(s)${shinyC > 0 ? ` · ${shinyC} ✨ Shiny` : ''}`;
+        }
 
         const killsEl = document.getElementById('piw-kills');
         const capsEl = document.getElementById('piw-captures');
@@ -1882,8 +2144,11 @@
     function closeInfoWindow() {
         infoWindowVisible = false;
         GM_setValue('piw_info_win_visible', false);
+        inspectedPokemon = null;
+        isPartySlotPinned = false;
         const win = document.getElementById('piw-info-window');
         if (win) win.style.display = 'none';
+        if (capturesWindowVisible) renderCapturesWindow();
     }
 
     function toggleInfoWindow() {
@@ -1903,6 +2168,10 @@
                 try { socket.send(JSON.stringify({ type: 'pokes-get' })); } catch(e){}
             }
             renderInfoWindow();
+        } else {
+            inspectedPokemon = null;
+            isPartySlotPinned = false;
+            if (capturesWindowVisible) renderCapturesWindow();
         }
     }
 
@@ -1972,13 +2241,25 @@
             return;
         }
 
-        const isInspectingNonLeader = Boolean(inspectedPokemon && currentLeaderData && inspectedPokemon.id !== currentLeaderData.id);
-        const name = cleanPokemonName(leader?.name || leaderName || '?');
-        const level = isInspectingNonLeader ? (leader.level || 1) : (leaderLevel || leader?.level || 1);
-        const currentCreature = creatures.find(c => c.name?.toLowerCase() === name.toLowerCase());
-        const speciesId = currentCreature?.pokeId || currentCreature?.id || leader.speciesId || leader.pokeId || leaderPokeId || 0;
+        if (leader && leader.id && allPokesList && allPokesList.length > 0) {
+            const liveMatch = allPokesList.find(p => String(p.id) === String(leader.id) || String(p._id) === String(leader.id));
+            if (liveMatch) {
+                leader = { ...liveMatch, ...leader };
+                if (liveMatch.stats) leader.stats = { ...liveMatch.stats, ...(leader.stats || {}) };
+                if (liveMatch.power != null) leader.power = liveMatch.power;
+                if (liveMatch.maxHp != null) leader.maxHp = liveMatch.maxHp;
+                if (liveMatch.hp != null) leader.hp = liveMatch.hp;
+            }
+        }
 
-        const types = [leader.type1, leader.type2].filter(Boolean);
+        const isInspectingNonLeader = Boolean(inspectedPokemon && (!currentLeaderData || inspectedPokemon !== currentLeaderData || inspectedPokemon.id !== currentLeaderData.id));
+        const displayName = cleanPokemonName(leader?.name || leaderName || '?');
+        const level = isInspectingNonLeader ? (leader.level || 1) : (leaderLevel || leader?.level || 1);
+        const resolved = resolvePokemonSpecies(displayName, leader.speciesId || leader.pokeId || leaderPokeId);
+        const currentCreature = resolved.creature;
+        const speciesId = resolved.speciesId;
+
+        const types = Array.from(new Set([leader.type1, leader.type2, currentCreature?.type1, currentCreature?.type2].filter(Boolean)));
         if (types.length === 0 && !isInspectingNonLeader && leaderTypes.length > 0) types.push(...leaderTypes);
 
         const isShiny = Boolean(leader.shiny);
@@ -1987,8 +2268,6 @@
         const ivTotal = leader.ivTotal ?? '?';
         const quality = leader.quality;
         const qTier = getQualityTier(quality);
-        const power = leader.power ?? '?';
-        const sellVal = leader.sellValue ?? '?';
 
         let calculatedExpPct = null;
         if (leader.expPct != null) {
@@ -1998,15 +2277,42 @@
             if (maxE > 0) calculatedExpPct = (Number(leader.exp) / Number(maxE)) * 100;
         }
 
-        const slotIdx = currentPartyList ? currentPartyList.findIndex(p => p.id === leader.id) : -1;
-        const domData = getPartyMonStatsFromDOM(slotIdx >= 0 ? slotIdx : null, leader.name);
-        const hpCurrent = leader.hp ?? domData?.hpCurrent ?? '?';
-        const hpMax = leader.maxHp ?? domData?.hpMax ?? '?';
-        const expPct = calculatedExpPct ?? domData?.expPct ?? leader.expPct ?? null;
-
         const baseStats = getBaseStatsForSpecies(speciesId);
         const levelForIV = leader.level || level || 1;
-        const calculatedIVs = computeExactIVs({ ...leader, speciesId, level: levelForIV });
+        const avgIV = (Number.isFinite(Number(leader.ivTotal)) && Number(leader.ivTotal) > 0) ? Math.round(Number(leader.ivTotal) / 6) : 15;
+        const monQual = leader.quality || 1;
+
+        let statsObj = leader.stats || {};
+        if ((!statsObj || Object.keys(statsObj).length === 0) && baseStats) {
+            const monLvl = levelForIV;
+            statsObj = {
+                hp: leader.hp != null && leader.hp < 10 ? leader.hp : calculateStatFormula(baseStats.hp, avgIV, monLvl, Math.pow(monQual, QUALITY_EXP.hp)),
+                atk: leader.atk ?? calculateStatFormula(baseStats.atk, avgIV, monLvl, Math.pow(monQual, QUALITY_EXP.atk)),
+                def: leader.def ?? calculateStatFormula(baseStats.def, avgIV, monLvl, Math.pow(monQual, QUALITY_EXP.def)),
+                spAtk: leader.spAtk ?? leader.spatk ?? calculateStatFormula(baseStats.spAtk, avgIV, monLvl, Math.pow(monQual, QUALITY_EXP.spAtk)),
+                spDef: leader.spDef ?? leader.spdef ?? calculateStatFormula(baseStats.spDef, avgIV, monLvl, Math.pow(monQual, QUALITY_EXP.spDef)),
+                speed: leader.speed ?? leader.spe ?? calculateStatFormula(baseStats.speed, avgIV, monLvl, Math.pow(monQual, QUALITY_EXP.speed))
+            };
+        }
+
+        let calculatedPower = leader.power;
+        if (!calculatedPower || calculatedPower === '?') {
+            if (statsObj && Object.keys(statsObj).length > 0) {
+                const sum = (Number(statsObj.hp) || 0) + (Number(statsObj.atk) || 0) + (Number(statsObj.def) || 0) + (Number(statsObj.spAtk) || 0) + (Number(statsObj.spDef) || 0) + (Number(statsObj.speed) || 0);
+                calculatedPower = sum;
+            }
+        }
+        const power = calculatedPower ?? '?';
+        const sellVal = leader.sellValue ?? '?';
+
+        const slotIdx = currentPartyList ? currentPartyList.findIndex(p => p.id === leader.id) : -1;
+        const domData = (!isInspectingNonLeader && slotIdx >= 0) ? getPartyMonStatsFromDOM(slotIdx, leader.name) : null;
+        const calcMaxHp = baseStats ? calculateMaxHpFormula(baseStats.hp, avgIV, levelForIV, Math.pow(monQual, QUALITY_EXP.hp)) : 24;
+        const hpMax = isInspectingNonLeader ? (leader.maxHp ?? calcMaxHp) : (leader.maxHp ?? domData?.hpMax ?? calcMaxHp);
+        const hpCurrent = isInspectingNonLeader ? (leader.hp ?? hpMax) : (leader.hp ?? domData?.hpCurrent ?? hpMax);
+        const expPct = isInspectingNonLeader ? (leader.expPct ?? null) : (calculatedExpPct ?? domData?.expPct ?? leader.expPct ?? null);
+
+        const calculatedIVs = computeExactIVs({ ...leader, stats: statsObj, speciesId, level: levelForIV });
 
         let partyBarHtml = '';
         if (currentPartyList && currentPartyList.length > 0) {
@@ -2033,12 +2339,12 @@
             `;
         }
 
-        let qualityChipHtml = `<span class="piw-iw-chip">Quality <b>${quality ?? '?'}</b></span>`;
+        let qualityChipHtml = `<span class="piw-iw-chip">Qualidade <b>${quality ?? '?'}</b></span>`;
         if (qTier && quality) {
             if (isShiny) {
-                qualityChipHtml = `<span class="piw-iw-chip" style="color:#fff;background:linear-gradient(120deg, ${qTier.color}40, ${qTier.color}cc, ${qTier.color}40);border-color:${qTier.color}">Quality <b>${quality}</b></span>`;
+                qualityChipHtml = `<span class="piw-iw-chip" style="color:#fff;background:linear-gradient(120deg, ${qTier.color}40, ${qTier.color}cc, ${qTier.color}40);border-color:${qTier.color}"><b>${qTier.name}</b> (${quality})</span>`;
             } else {
-                qualityChipHtml = `<span class="piw-iw-chip" style="color:${qTier.color};background:${qTier.color}26;border-color:${qTier.color}99" title="${qTier.name}">Quality <b>${quality}</b></span>`;
+                qualityChipHtml = `<span class="piw-iw-chip" style="color:${qTier.color};background:${qTier.color}22;border-color:${qTier.color}99;font-weight:700" title="${qTier.name}"><b>${qTier.name}</b> (${quality})</span>`;
             }
         }
 
@@ -2046,7 +2352,7 @@
             <div class="piw-iw-hero">
                 ${sprites ? `<img class="piw-iw-sprite" src="${sprites.anim}" onerror="this.onerror=null;this.src='${sprites.still}'">` : ''}
                 <div style="min-width:0">
-                    <div class="piw-iw-name">${name}${isShiny ? ' <span style="color:#ffd54a">✨</span>' : ''}<span class="piw-iw-lv">Lv. ${level}</span></div>
+                    <div class="piw-iw-name">${displayName}${isShiny ? ' <span style="color:#ffd54a">✨</span>' : ''}<span class="piw-iw-lv">Lv. ${level}</span></div>
                     <div class="piw-iw-types">
                         ${types.map(t => {
                             const bg = TYPE_COLORS_MAP[t.toLowerCase()] || TYPE_COLORS[t.toUpperCase()] || '#888';
@@ -2088,8 +2394,6 @@
                 <span class="piw-iw-bar-val">${Number(expPct).toFixed(1)}%</span>
             </div>` : ''}
         `;
-
-        const statsObj = leader.stats || {};
         const statsGridHtml = `
             <div class="piw-iw-card">
                 <div class="piw-iw-sec">• STATS</div>
@@ -2155,7 +2459,18 @@
             `;
         }
 
+        let inspectingBannerHtml = '';
+        if (isInspectingNonLeader) {
+            inspectingBannerHtml = `
+                <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);padding:6px 10px;border-radius:8px;margin-bottom:8px;font-size:11.5px;color:#fde047;font-weight:700">
+                    <span>📦 Pokémon Inspecionado</span>
+                    <span id="piw-iw-return-leader-btn" style="cursor:pointer;color:#fff;background:rgba(255,255,255,.12);padding:2px 8px;border-radius:5px;font-size:11px;transition:all .15s">Voltar ao Líder ✕</span>
+                </div>
+            `;
+        }
+
         body.innerHTML = `
+            ${inspectingBannerHtml}
             ${partyBarHtml}
             <div class="piw-iw-card">
                 ${heroHtml}
@@ -2165,6 +2480,13 @@
             ${effSectionHtml}
             ${ivsSectionHtml}
         `;
+
+        body.querySelector('#piw-iw-return-leader-btn')?.addEventListener('click', () => {
+            inspectedPokemon = null;
+            isPartySlotPinned = false;
+            renderInfoWindow();
+            if (capturesWindowVisible) renderCapturesWindow();
+        });
     }
 
     // ========== JANELA DE MOVES ==========
@@ -2454,63 +2776,171 @@
 
     function findPokemonFromElement(target) {
         if (!target || target === document.body || target === document.documentElement) return null;
-        
+
         // Ignora qualquer elemento das janelas do próprio script
-        if (target.closest('[id^="piw-"], .piw-panel, .piw-modal, .piw-tag, .piw-card')) return null;
+        if (target.closest('[id^="piw-"], .piw-panel, .piw-modal, .piw-tag, .piw-card, #piw-autohunt-window, #piw-tracker-window, #piw-info-window, #piw-moves-window, #piw-captures-window')) return null;
 
-        // Deve estar ESTRITAMENTE dentro do Depot / Storage / PC Box do jogo
-        const depotBox = target.closest('.depot-modal, .depot-container, .depot-view, .storage-modal, .storage-view, .box-container, [class*="depot"], [class*="storage"], [class*="pokes-modal"], [class*="box-view"], [class*="depot-content"], .pokes-grid, .storage-grid, .depot-grid');
-        if (!depotBox) return null;
+        // Ignora o log de captura do próprio jogo, chat, mensagens e histórico nativo do jogo
+        if (target.closest('.log, .logs, .chat, .messages, [class*="log"], [class*="chat"], [class*="history"], [class*="toast"], [class*="notification"]')) return null;
 
-        // Não inspeciona o HUD do time em batalha
-        if (target.closest('.phud-party, .party-container, .hud-party, button.dock-btn, .header, .nav')) return null;
+        // Não inspeciona o HUD do time em batalha nem canvas de jogo
+        if (target.closest('.phud-party, .party-container, .hud-party, button.dock-btn, .header, .nav, canvas')) return null;
 
-        const monEl = target.closest('[data-poke-id], [data-id], [class*="mon"], [class*="poke"], [class*="storage"], [class*="depot"], [class*="box"], [class*="slot"], [class*="item"]');
+        // Requer que o elemento esteja dentro de um container de Depot / Storage / PC Box
+        const isDepot = target.closest('[class*="depot"], [class*="storage"], [class*="box"], [class*="pc"], .pokes-grid, .storage-grid, .depot-grid, .box-grid, .storage-modal, .depot-modal');
+        if (!isDepot) return null;
+
+        const monEl = target.closest('[data-poke-id], [data-id], [data-mon-id], [data-pokemon-id], [data-uid], [data-key], [class*="mon"], [class*="poke"], [class*="card"], [class*="item"], [class*="slot"], [class*="storage"], [class*="depot"], [class*="box"], [class*="entry"], [class*="grid-item"], button, div');
         if (!monEl) return null;
         if (monEl.closest('button.dock-btn, .header, .nav, .phud-party')) return null;
 
-        const dataId = monEl.getAttribute('data-id') || monEl.getAttribute('data-poke-id') || monEl.getAttribute('data-mon-id') || monEl.dataset?.id;
-        if (dataId && allPokesList && allPokesList.length > 0) {
-            const found = allPokesList.find(p => String(p.id) === String(dataId) || String(p._id) === String(dataId) || String(p.pokeId) === String(dataId));
-            if (found) return { mon: found, element: monEl };
+        // 1. Procura ID único no elemento ou filhos
+        const idHolder = monEl.matches('[data-id], [data-poke-id], [data-mon-id], [data-pokemon-id], [data-uid], [data-key]')
+            ? monEl
+            : monEl.querySelector('[data-id], [data-poke-id], [data-mon-id], [data-pokemon-id], [data-uid], [data-key]');
+
+        const dataId = idHolder?.getAttribute('data-id') ||
+                       idHolder?.getAttribute('data-poke-id') ||
+                       idHolder?.getAttribute('data-mon-id') ||
+                       idHolder?.getAttribute('data-pokemon-id') ||
+                       idHolder?.getAttribute('data-uid') ||
+                       idHolder?.getAttribute('data-key') ||
+                       idHolder?.dataset?.id ||
+                       idHolder?.dataset?.pokeId;
+
+        if (dataId) {
+            if (allPokesList && allPokesList.length > 0) {
+                const found = allPokesList.find(p => String(p.id) === String(dataId) || String(p._id) === String(dataId) || String(p.pokeId) === String(dataId) || String(p.uid) === String(dataId));
+                if (found) return { mon: found, element: monEl };
+            }
+            if (captureLogs && captureLogs.length > 0) {
+                const foundCap = captureLogs.find(p => String(p.id) === String(dataId));
+                if (foundCap) return { mon: foundCap, element: monEl };
+            }
+        }
+
+        const imgEl = monEl.querySelector('img');
+        let imgSpeciesId = null;
+        if (imgEl && imgEl.src) {
+            const srcMatch = imgEl.src.match(/(?:pokemon|sprites)[^\/]*\/(\d+)\.(?:png|gif|webp)/i);
+            if (srcMatch) imgSpeciesId = Number(srcMatch[1]);
         }
 
         const nameEl = monEl.querySelector('[class*="name"], .title, b, strong, .label');
-        const imgEl = monEl.querySelector('img');
         const rawName = nameEl?.textContent || imgEl?.alt || imgEl?.title || monEl.getAttribute('title') || monEl.getAttribute('aria-label') || '';
         const cleanName = cleanPokemonName(rawName);
 
-        if (!cleanName) return null;
+        const fullText = (monEl.textContent || '') + ' ' + (monEl.getAttribute('title') || '') + ' ' + (monEl.getAttribute('aria-label') || '');
 
         const lvEl = monEl.querySelector('[class*="lv"], [class*="level"]');
-        const lvMatch = (lvEl?.textContent || monEl.textContent || monEl.getAttribute('title') || '').match(/lv\.?\s*(\d+)/i);
+        const lvMatch = (lvEl?.textContent || fullText).match(/(?:lv|nv|lvl|level)\.?\s*(\d+)/i);
         const level = lvMatch ? Number(lvMatch[1]) : null;
 
+        const qualMatch = fullText.match(/(?:qualidade|quality|qual|q|tier)\.?\s*([0-9]+(?:\.[0-9]+)?)/i);
+        const domQuality = qualMatch ? parseFloat(qualMatch[1]) : null;
+
+        const ivMatch = fullText.match(/(?:iv|ivs|ivtotal)\.?\s*(\d+)/i);
+        const domIvTotal = ivMatch ? Number(ivMatch[1]) : null;
+
+        const isShinyEl = Boolean(
+            monEl.classList.contains('shiny') ||
+            monEl.querySelector('.shiny, [class*="shiny"]') ||
+            /shiny|✨|★/i.test(fullText) ||
+            imgEl?.src?.includes('/shiny/')
+        );
+
+        // Identifica o índice do slot dentro do container do Depot/Box
+        const parentContainer = monEl.parentElement;
+        const siblingCards = parentContainer ? Array.from(parentContainer.children).filter(c => c.querySelector('img') || c.matches('[class*="mon"], [class*="poke"], [class*="slot"], [class*="card"]')) : [];
+        const cardSlotIndex = siblingCards.indexOf(monEl);
+
         if (allPokesList && allPokesList.length > 0) {
-            const matching = allPokesList.filter(p => cleanPokemonName(p.name).toLowerCase() === cleanName.toLowerCase());
-            if (matching.length === 1) {
-                return { mon: matching[0], element: monEl };
+            let candidates = allPokesList;
+
+            if (cleanName) {
+                candidates = candidates.filter(p => cleanPokemonName(p.name).toLowerCase() === cleanName.toLowerCase());
+            } else if (imgSpeciesId) {
+                candidates = candidates.filter(p => Number(p.speciesId || p.pokeId) === imgSpeciesId);
+            } else {
+                candidates = [];
             }
-            if (matching.length > 1) {
+
+            if (candidates.length === 1) {
+                return { mon: candidates[0], element: monEl };
+            }
+
+            if (candidates.length > 1) {
+                // Prioriza pokémons que NÃO estão no time de batalha ativo quando inspecionando depot
+                const nonTeamCandidates = candidates.filter(p => !p.team && !p.leader);
+                const pool = nonTeamCandidates.length > 0 ? nonTeamCandidates : candidates;
+
+                let filteredPool = pool;
                 if (level !== null) {
-                    const matchLv = matching.find(p => Number(p.level || p.lvl) === level);
-                    if (matchLv) return { mon: matchLv, element: monEl };
+                    const byLv = filteredPool.filter(p => Number(p.level || p.lvl) === level);
+                    if (byLv.length > 0) filteredPool = byLv;
                 }
-                return { mon: matching[0], element: monEl };
+                if (isShinyEl) {
+                    const byShiny = filteredPool.filter(p => Boolean(p.shiny));
+                    if (byShiny.length > 0) filteredPool = byShiny;
+                }
+                if (domQuality !== null) {
+                    const byQual = filteredPool.filter(p => Math.abs(Number(p.quality || 1) - domQuality) < 0.05);
+                    if (byQual.length > 0) filteredPool = byQual;
+                }
+
+                if (filteredPool.length === 1) {
+                    return { mon: filteredPool[0], element: monEl };
+                }
+
+                // Se houver múltiplos do mesmo nível/espécie no depot, distribui por índice do slot
+                if (filteredPool.length > 1 && cardSlotIndex >= 0) {
+                    const chosen = filteredPool[cardSlotIndex % filteredPool.length];
+                    return { mon: chosen, element: monEl };
+                }
+
+                if (filteredPool.length > 0) {
+                    return { mon: filteredPool[0], element: monEl };
+                }
             }
         }
 
-        if (creatures && creatures.length > 0) {
-            const c = creatures.find(cr => cr.name?.toLowerCase() === cleanName.toLowerCase());
+        // Verifica no histórico de capturas recente
+        if (captureLogs && captureLogs.length > 0 && (cleanName || imgSpeciesId)) {
+            const capMatch = captureLogs.find(p =>
+                (cleanName && p.name.toLowerCase() === cleanName.toLowerCase()) ||
+                (imgSpeciesId && Number(p.speciesId) === imgSpeciesId)
+            );
+            if (capMatch) return { mon: capMatch, element: monEl };
+        }
+
+        // Fallback construído dinamicamente com os stats específicos da espécie e nível
+        if (cleanName || imgSpeciesId) {
+            const c = creatures.find(cr => (cleanName && cr.name?.toLowerCase() === cleanName.toLowerCase()) || (imgSpeciesId && (cr.pokeId || cr.id) === imgSpeciesId));
             if (c) {
+                const specId = c.pokeId || c.id || imgSpeciesId;
+                const monLvl = level || 1;
+                const monQual = domQuality || 1;
+                const base = getBaseStatsForSpecies(specId);
+                const dynStats = base ? {
+                    hp: calculateStatFormula(base.hp, 15, monLvl, Math.pow(monQual, QUALITY_EXP.hp)),
+                    atk: calculateStatFormula(base.atk, 15, monLvl, Math.pow(monQual, QUALITY_EXP.atk)),
+                    def: calculateStatFormula(base.def, 15, monLvl, Math.pow(monQual, QUALITY_EXP.def)),
+                    spAtk: calculateStatFormula(base.spAtk, 15, monLvl, Math.pow(monQual, QUALITY_EXP.spAtk)),
+                    spDef: calculateStatFormula(base.spDef, 15, monLvl, Math.pow(monQual, QUALITY_EXP.spDef)),
+                    speed: calculateStatFormula(base.speed, 15, monLvl, Math.pow(monQual, QUALITY_EXP.speed))
+                } : null;
+
                 return {
                     mon: {
                         name: c.name,
-                        speciesId: c.pokeId || c.id,
-                        level: level || 1,
+                        speciesId: specId,
+                        level: monLvl,
                         type1: c.type1,
                         type2: c.type2,
-                        quality: 1
+                        quality: monQual,
+                        shiny: isShinyEl,
+                        ivTotal: domIvTotal,
+                        stats: dynStats
                     },
                     element: monEl
                 };
@@ -2520,7 +2950,7 @@
         return null;
     }
 
-    // Escuta hover em pokémons no Depot/Storage/Box/HUD
+    // Escuta hover em pokémons no Depot/Storage/Box
     document.addEventListener('mouseover', (e) => {
         const found = findPokemonFromElement(e.target);
         if (found) {
@@ -3077,6 +3507,7 @@
     function closeTrackerWindow() {
         trackerWindowVisible = false;
         GM_setValue('piw_tracker_win_visible', false);
+        trackerActiveTab = 'session';
         const win = document.getElementById('piw-tracker-window');
         if (win) win.style.display = 'none';
         if (trackerInterval) {
@@ -3097,6 +3528,7 @@
         GM_setValue('piw_tracker_win_visible', trackerWindowVisible);
         win.style.display = trackerWindowVisible ? 'flex' : 'none';
         if (trackerWindowVisible) {
+            trackerActiveTab = 'session';
             bringToFront(win);
             renderTrackerWindow();
             if (!trackerInterval) {
@@ -3107,6 +3539,7 @@
                 }, 1000);
             }
         } else {
+            trackerActiveTab = 'session';
             if (trackerInterval) {
                 clearInterval(trackerInterval);
                 trackerInterval = null;
@@ -3193,34 +3626,34 @@
                                     ${isBestExp ? '<span class="piw-tw-badge-best">🏆 TOP XP</span>' : ''}
                                     ${isBestProfit ? '<span class="piw-tw-badge-best" style="background:linear-gradient(135deg,#eab308,#ca8a04)">💰 TOP LUCRO</span>' : ''}
                                 </div>
-                                <div style="font-size:10px;color:#7d86ad;margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:3px 6px">
-                                    <span style="white-space:nowrap">👑 ${item.leaderName} (Nv. ${item.leaderLevel})</span>
-                                    <span style="color:rgba(255,255,255,.15)">·</span>
-                                    <span style="white-space:nowrap">⏱️ ${formatDuration(item.durationSec)}</span>
-                                    <span style="color:rgba(255,255,255,.15)">·</span>
-                                    <span style="white-space:nowrap">⚔️ ${item.kills} abates</span>
-                                    ${item.caps ? `<span style="color:rgba(255,255,255,.15)">·</span><span style="white-space:nowrap">🔴 ${item.caps} capturas</span>` : ''}
-                                    <span style="color:rgba(255,255,255,.15)">·</span>
-                                    <span style="white-space:nowrap">📅 ${item.date}</span>
+                                <div style="font-size:11.5px;font-weight:600;color:#cbd5e1;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px">
+                                    <span style="white-space:nowrap">👑 <b style="color:#fff">${item.leaderName}</b> (Nv. ${item.leaderLevel})</span>
+                                    <span style="color:rgba(255,255,255,.3)">·</span>
+                                    <span style="white-space:nowrap">⏱️ <b style="color:#93c5fd">${formatDuration(item.durationSec)}</b></span>
+                                    <span style="color:rgba(255,255,255,.3)">·</span>
+                                    <span style="white-space:nowrap">⚔️ <b style="color:#a5b4fc">${item.kills}</b> abates</span>
+                                    ${item.caps ? `<span style="color:rgba(255,255,255,.3)">·</span><span style="white-space:nowrap">🔴 <b style="color:#86efac">${item.caps}</b> caps</span>` : ''}
+                                    <span style="color:rgba(255,255,255,.3)">·</span>
+                                    <span style="white-space:nowrap">📅 <b style="color:#fde047">${item.date}</b></span>
                                 </div>
                             </div>
-                            <button class="piw-tw-del-item" data-id="${item.id}" style="background:none;border:none;color:#7d86ad;cursor:pointer;font-size:14px;padding:2px 4px" title="Excluir do histórico">✕</button>
+                            <button class="piw-tw-del-item" data-id="${item.id}" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:15px;padding:2px 6px;line-height:1" title="Excluir do histórico">✕</button>
                         </div>
-                        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:4px;margin-top:6px;background:rgba(0,0,0,.2);padding:6px;border-radius:8px">
+                        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-top:8px;background:rgba(0,0,0,.25);padding:8px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.06)">
                             <div style="text-align:center">
-                                <div style="font-size:9.5px;color:#9aa3bf">✨ XP / HORA</div>
-                                <div style="font-size:12px;font-weight:700;color:#34d399">${Number(item.expPerHour || 0).toLocaleString('pt-BR')}</div>
+                                <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">✨ XP / HORA</div>
+                                <div style="font-size:13px;font-weight:700;color:#34d399;margin-top:2px">${Number(item.expPerHour || 0).toLocaleString('pt-BR')}</div>
                             </div>
                             <div style="text-align:center">
-                                <div style="font-size:9.5px;color:#9aa3bf">📈 SALDO / HORA</div>
-                                <div style="font-size:12px;font-weight:700;color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${Number(absNetHour).toLocaleString('pt-BR')}</div>
+                                <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">📈 SALDO / H</div>
+                                <div style="font-size:13px;font-weight:700;color:${isNetPositive ? '#4ade80' : '#f87171'};margin-top:2px">${sign}$${Number(absNetHour).toLocaleString('pt-BR')}</div>
                             </div>
                             <div style="text-align:center">
-                                <div style="font-size:9.5px;color:#9aa3bf">⚔️ ABATES / HORA</div>
-                                <div style="font-size:12px;font-weight:700;color:#60a5fa">${Number(item.killsPerHour || 0).toLocaleString('pt-BR')}/h</div>
+                                <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">⚔️ ABATES / H</div>
+                                <div style="font-size:13px;font-weight:700;color:#60a5fa;margin-top:2px">${Number(item.killsPerHour || 0).toLocaleString('pt-BR')}/h</div>
                             </div>
                         </div>
-                        <div style="display:flex;justify-content:space-between;font-size:11px;color:#cbd5e1;margin-top:4px;padding:0 4px">
+                        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:600;color:#cbd5e1;margin-top:6px;padding:0 4px">
                             <span>Loot: <b style="color:#facc15">$${Number(item.lootGained || 0).toLocaleString('pt-BR')}</b></span>
                             <span>Supply: <b style="color:#fca5a5">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
                             <span>Saldo: <b style="color:${isNetPositive ? '#86efac' : '#fca5a5'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
@@ -3378,6 +3811,348 @@
         body.querySelector('#piw-tw-save-btn')?.addEventListener('click', () => saveCurrentRouteSession(true));
         body.querySelector('#piw-tw-reset-btn')?.addEventListener('click', () => {
             resetTrackerSession();
+        });
+    }
+
+    // ========== JANELA DE LOGS DE CAPTURA ==========
+    let capturesWindowVisible = GM_getValue('piw_caps_win_visible', false);
+    let rawSavedLogs = GM_getValue('piw_capture_logs', []);
+    let captureLogs = [];
+    if (Array.isArray(rawSavedLogs)) {
+        for (let i = 0; i < rawSavedLogs.length; i++) {
+            const cur = rawSavedLogs[i];
+            if (!cur || !cur.name) continue;
+            const prev = captureLogs[captureLogs.length - 1];
+            if (prev && prev.name === cur.name && Math.abs(Number(prev.time) - Number(cur.time)) < 2500) {
+                if (!prev.quality && cur.quality) {
+                    captureLogs[captureLogs.length - 1] = cur;
+                }
+                continue;
+            }
+            captureLogs.push(cur);
+        }
+        GM_setValue('piw_capture_logs', captureLogs);
+    }
+    let captureFilterShiny = false;
+    let captureFilterQuality = 'all';
+    let captureFilterQuery = '';
+
+    function addCaptureLog(data) {
+        if (!data) return;
+        const name = cleanPokemonName(data.name || data.speciesName || '');
+        if (!name) return;
+        const c = creatures.find(cr => cr.name?.toLowerCase() === name.toLowerCase() || (cr.pokeId || cr.id) === Number(data.speciesId));
+        const speciesId = data.speciesId || c?.pokeId || c?.id || 0;
+        const isShiny = Boolean(data.shiny || /shiny|✨|★/i.test(data.name || ''));
+        let val = Number(data.sellValue ?? data.priceNpc ?? data.price ?? data.value ?? 0);
+        if (!val || val <= 0) val = Number(c?.sellValue ?? c?.priceNpc ?? 0);
+
+        const entry = {
+            id: String(data.id || ('cap_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4))),
+            speciesId: speciesId,
+            name: name,
+            level: Number(data.level || data.lvl || 1),
+            shiny: isShiny,
+            quality: data.quality != null ? Number(data.quality) : (data.q != null ? Number(data.q) : 1),
+            ivTotal: data.ivTotal != null ? Number(data.ivTotal) : (data.ivs != null ? Number(data.ivs) : null),
+            stats: data.stats || (data.hp ? { hp: data.hp, atk: data.atk, def: data.def, spAtk: data.spAtk || data.spatk, spDef: data.spDef || data.spdef, speed: data.speed || data.spe } : null),
+            sellValue: val,
+            ball: data.ball || null,
+            route: currentRoute || huntingPokemon || (data.route ? formatHuntName(data.route) : 'Caça'),
+            time: Date.now()
+        };
+
+        // Previne duplicações de qualquer evento dentro de 2.5 segundos (mesmo pokeId ou mesmo nome em intervalo curtíssimo)
+        if (captureLogs.length > 0) {
+            const first = captureLogs[0];
+            const timeDiff = Math.abs(Date.now() - Number(first.time));
+            if ((first.id === entry.id || first.name === entry.name) && timeDiff < 2500) {
+                // Se a entrada nova tem dados de qualidade/IV e a anterior não tinha, enriquece a anterior
+                if (!first.quality && entry.quality) {
+                    captureLogs[0] = entry;
+                    GM_setValue('piw_capture_logs', captureLogs);
+                    if (capturesWindowVisible) renderCapturesWindow();
+                    syncUI();
+                }
+                return;
+            }
+        }
+
+        captureLogs.unshift(entry);
+        if (captureLogs.length > 200) captureLogs.pop();
+        GM_setValue('piw_capture_logs', captureLogs);
+
+        if (capturesWindowVisible) renderCapturesWindow();
+        syncUI();
+    }
+
+    function createCapturesWindowDOM() {
+        if (document.getElementById('piw-captures-window')) return;
+
+        const win = document.createElement('div');
+        win.id = 'piw-captures-window';
+
+        const storedPos = GM_getValue('piw_caps_win_pos', { left: 450, top: 180 });
+        const storedSize = GM_getValue('piw_caps_win_size', null);
+        const cwL = parseFloat(storedPos.left);
+        const cwT = parseFloat(storedPos.top);
+        win.style.left = `${!isNaN(cwL) ? cwL : 450}px`;
+        win.style.top = `${!isNaN(cwT) ? cwT : 180}px`;
+        if (storedSize && storedSize.w) win.style.width = `${storedSize.w}px`;
+        if (storedSize && storedSize.h) win.style.height = `${storedSize.h}px`;
+        win.style.display = capturesWindowVisible ? 'flex' : 'none';
+
+        win.innerHTML = `
+            <div class="piw-cw-head">
+                <span class="piw-cw-title"><span class="piw-cw-dot"></span>📦 Log de Capturas</span>
+                <span class="piw-cw-close" id="piw-cw-close-btn" title="Fechar">✕</span>
+            </div>
+            <div class="piw-cw-body"></div>
+            <div class="piw-win-resize" title="Arraste para redimensionar"></div>
+        `;
+
+        makeBringableToFront(win);
+        document.body.appendChild(win);
+        applyOpacityAll();
+
+        win.querySelector('#piw-cw-close-btn').addEventListener('click', closeCapturesWindow);
+
+        const head = win.querySelector('.piw-cw-head');
+        makeDraggable(win, head, 'piw_caps_win_pos');
+
+        const resizeHandle = win.querySelector('.piw-win-resize');
+        makeResizable(win, resizeHandle, 'piw_caps_win_size', 320, 220);
+
+        if (capturesWindowVisible) {
+            renderCapturesWindow();
+        }
+    }
+
+    function closeCapturesWindow() {
+        capturesWindowVisible = false;
+        GM_setValue('piw_caps_win_visible', false);
+        const win = document.getElementById('piw-captures-window');
+        if (win) win.style.display = 'none';
+    }
+
+    function toggleCapturesWindow() {
+        let win = document.getElementById('piw-captures-window');
+        if (!win) {
+            createCapturesWindowDOM();
+            win = document.getElementById('piw-captures-window');
+        }
+        if (!win) return;
+
+        capturesWindowVisible = !capturesWindowVisible;
+        GM_setValue('piw_caps_win_visible', capturesWindowVisible);
+        win.style.display = capturesWindowVisible ? 'flex' : 'none';
+        if (capturesWindowVisible) {
+            bringToFront(win);
+            renderCapturesWindow();
+        }
+    }
+
+    function renderCapturesWindow() {
+        const win = document.getElementById('piw-captures-window');
+        if (!win || !capturesWindowVisible) return;
+
+        const body = win.querySelector('.piw-cw-body');
+        if (!body) return;
+
+        const totalCaps = captureLogs.length;
+        const totalShinies = captureLogs.filter(p => p.shiny).length;
+        const totalGold = captureLogs.reduce((sum, p) => sum + (Number(p.sellValue) || 0), 0);
+
+        let filtered = captureLogs;
+        if (captureFilterShiny) {
+            filtered = filtered.filter(p => p.shiny);
+        }
+        if (captureFilterQuality && captureFilterQuality !== 'all') {
+            filtered = filtered.filter(p => {
+                if (!p.quality) return captureFilterQuality === 'Fraca';
+                const tier = getQualityTier(p.quality);
+                return tier && tier.name.toLowerCase() === captureFilterQuality.toLowerCase();
+            });
+        }
+        if (captureFilterQuery.trim()) {
+            const q = captureFilterQuery.trim().toLowerCase();
+            filtered = filtered.filter(p => p.name.toLowerCase().includes(q) || (p.route && p.route.toLowerCase().includes(q)));
+        }
+
+        const formatTime = (ts) => {
+            if (!ts) return '';
+            const d = new Date(ts);
+            const now = new Date();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            const seconds = String(d.getSeconds()).padStart(2, '0');
+            const timeStr = `${hours}:${minutes}:${seconds}`;
+
+            if (d.toDateString() === now.toDateString()) {
+                return `Hoje ${timeStr}`;
+            }
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            return `${day}/${month} ${timeStr}`;
+        };
+
+        const renderItem = (p) => {
+            const resolved = resolvePokemonSpecies(p.name, p.speciesId);
+            const speciesId = resolved.speciesId;
+            const sprites = getPokemonSpriteUrls(speciesId, p.shiny);
+            const qTier = p.quality ? getQualityTier(p.quality) : null;
+            const isCurrentlyInspected = inspectedPokemon && String(inspectedPokemon.id) === String(p.id);
+
+            return `
+                <div class="piw-cw-item ${p.shiny ? 'shiny' : ''}${isCurrentlyInspected ? ' inspected' : ''}" data-cap-id="${p.id}" style="cursor:pointer" title="Clique para ver os IVs & Stats">
+                    <img class="piw-cw-sprite" src="${sprites ? sprites.still : ''}" alt="${p.name}" onerror="if(this.src!=='${sprites ? sprites.anim : ''}')this.src='${sprites ? sprites.anim : ''}'">
+                    <div class="piw-cw-info">
+                        <div class="piw-cw-name-row">
+                            <span class="piw-cw-name">${p.name}</span>
+                            <span class="piw-cw-lv">Nv ${p.level || 1}</span>
+                            ${p.shiny ? '<span style="font-size:9.5px;font-weight:700;color:#000;background:linear-gradient(135deg,#fde047,#eab308);border-radius:4px;padding:1px 5px">SHINY</span>' : ''}
+                        </div>
+                        <div class="piw-cw-badges">
+                            ${qTier ? `<span class="piw-cw-badge" style="color:${qTier.color};background:${qTier.color}22;border:1px solid ${qTier.color}88;font-weight:700">${qTier.name} (${p.quality})</span>` : (p.quality ? `<span class="piw-cw-badge" style="color:#cbd5e1;border:1px solid rgba(255,255,255,.2)">Q ${p.quality}</span>` : '')}
+                            ${p.ivTotal ? `<span class="piw-cw-badge" style="color:#60a5fa;border:1px solid rgba(96,165,250,.3)">IV ${p.ivTotal}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="piw-cw-meta">
+                        <div class="piw-cw-val">+$${(Number(p.sellValue) || 0).toLocaleString('pt-BR')}</div>
+                        <div class="piw-cw-time">${formatTime(p.time)}</div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const qualTiersList = [
+            { id: 'all', name: 'Todas', color: '#cbd5e1' },
+            { id: 'Fraca', name: 'Fraca', color: '#94a3b8' },
+            { id: 'Comum', name: 'Comum', color: '#22c55e' },
+            { id: 'Incomum', name: 'Incomum', color: '#38bdf8' },
+            { id: 'Rara', name: 'Rara', color: '#a855f7' },
+            { id: 'Épica', name: 'Épica', color: '#facc15' },
+            { id: 'Lendária', name: 'Lendária', color: '#f97316' },
+            { id: 'Mítica', name: 'Mítica', color: '#ec4899' },
+            { id: 'Antiga', name: 'Antiga', color: '#d97706' },
+            { id: 'Divina', name: 'Divina', color: '#e0f2fe' }
+        ];
+
+        const qualPillsHtml = qualTiersList.map(t => {
+            const isActive = captureFilterQuality === t.id;
+            return `
+                <span class="piw-cw-qual-pill ${isActive ? 'active' : ''}" data-qual="${t.id}" style="color:${t.color};border-color:${isActive ? t.color : t.color + '44'};background:${isActive ? t.color + '26' : 'rgba(255,255,255,.03)'}">
+                    ${t.name}
+                </span>
+            `;
+        }).join('');
+
+        let itemsHtml = '';
+        if (filtered.length === 0) {
+            itemsHtml = `
+                <div style="color:#cbd5e1;padding:24px 12px;text-align:center;font-size:11.5px;line-height:1.4">
+                    ${captureLogs.length === 0
+                        ? 'Nenhum pokémon capturado ainda nesta sessão.<br>Deixe o Auto Hunt rodando — cada captura aparecerá aqui automaticamente com todos os seus dados!'
+                        : 'Nenhum pokémon encontrado para o filtro atual.'}
+                </div>
+            `;
+        } else {
+            itemsHtml = filtered.map(renderItem).join('');
+        }
+
+        body.innerHTML = `
+            <div class="piw-cw-grid">
+                <div class="piw-cw-stat">
+                    <div class="piw-cw-stat-title">TOTAL</div>
+                    <div class="piw-cw-stat-val" style="color:#93c5fd">${totalCaps}</div>
+                </div>
+                <div class="piw-cw-stat">
+                    <div class="piw-cw-stat-title">SHINY ✨</div>
+                    <div class="piw-cw-stat-val" style="color:#fde047">${totalShinies}</div>
+                </div>
+                <div class="piw-cw-stat">
+                    <div class="piw-cw-stat-title">VALOR 💰</div>
+                    <div class="piw-cw-stat-val" style="color:#4ade80">$${totalGold.toLocaleString('pt-BR')}</div>
+                </div>
+            </div>
+
+            <div class="piw-cw-toolbar">
+                <input type="text" class="piw-cw-search" id="piw-cw-search-input" placeholder="🔎 Filtrar por nome/rota..." value="${captureFilterQuery}">
+                <button class="piw-cw-btn ${captureFilterShiny ? 'active' : ''}" id="piw-cw-filter-shiny" title="Exibir apenas Shiny">✨ Shiny</button>
+                <button class="piw-cw-btn" id="piw-cw-clear-btn" title="Limpar histórico de capturas" style="color:#f87171">🗑 Limpar</button>
+            </div>
+
+            <div class="piw-cw-qual-bar">
+                ${qualPillsHtml}
+            </div>
+
+            <div class="piw-cw-list">
+                ${itemsHtml}
+            </div>
+        `;
+
+        body.querySelectorAll('.piw-cw-qual-pill').forEach(pill => {
+            pill.addEventListener('click', () => {
+                const qId = pill.dataset.qual;
+                captureFilterQuality = (captureFilterQuality === qId && qId !== 'all') ? 'all' : qId;
+                renderCapturesWindow();
+            });
+        });
+
+        // Clique no card de captura para inspecionar IVs & Stats
+        body.querySelectorAll('.piw-cw-item').forEach(itemEl => {
+            const capId = itemEl.dataset.capId;
+            const capMon = captureLogs.find(p => String(p.id) === String(capId));
+            if (!capMon) return;
+
+            itemEl.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (inspectedPokemon && String(inspectedPokemon.id) === String(capMon.id)) {
+                    // Desmarca o Pokémon inspecionado e volta para o líder
+                    inspectedPokemon = null;
+                    isPartySlotPinned = false;
+                } else {
+                    inspectedPokemon = capMon;
+                    isPartySlotPinned = true;
+                    if (!infoWindowVisible) {
+                        toggleInfoWindow();
+                    } else {
+                        const win = document.getElementById('piw-info-window');
+                        if (win) bringToFront(win);
+                    }
+                }
+                renderCapturesWindow();
+                if (infoWindowVisible) renderInfoWindow();
+            });
+        });
+
+        const searchInput = body.querySelector('#piw-cw-search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                captureFilterQuery = e.target.value;
+                renderCapturesWindow();
+                const reFocused = body.querySelector('#piw-cw-search-input');
+                if (reFocused) {
+                    reFocused.focus();
+                    reFocused.selectionStart = reFocused.selectionEnd = reFocused.value.length;
+                }
+            });
+        }
+
+        body.querySelector('#piw-cw-filter-shiny')?.addEventListener('click', () => {
+            captureFilterShiny = !captureFilterShiny;
+            renderCapturesWindow();
+        });
+
+        body.querySelector('#piw-cw-clear-btn')?.addEventListener('click', () => {
+            if (captureLogs.length > 0 && confirm('Deseja limpar todo o histórico de capturas?')) {
+                captureLogs = [];
+                GM_setValue('piw_capture_logs', captureLogs);
+                renderCapturesWindow();
+                syncUI();
+            }
         });
     }
 
@@ -4252,6 +5027,7 @@
                 huntSession.caps = huntSession.capturedPokes.length;
                 huntSession.capsValue = huntSession.capturedPokes.reduce((sum, item) => sum + (Number(item.sellValue) || 0), 0);
                 persistHuntSession();
+                addCaptureLog(p);
                 GM_log('[AutoHunt] 🔴 Nova Captura registrada:', p.name, 'Valor: $' + val, 'Total sessão:', huntSession.caps);
             } else {
                 knownPlayerPokeIds.add(pokeId);
@@ -4260,34 +5036,36 @@
 
         // 6. Detecta captura bem-sucedida para troca de rota do AutoHunt
         if (data.type === 'catch-result') {
-            if (data.success === true && enabled && !busy) {
-                captureCount++;
-                GM_log('[AutoHunt] Captura confirmada pelo servidor! Total alvo:', captureCount);
-                if (data.speciesName) {
-                    const nameLower = data.speciesName.toLowerCase();
-                    const matchIdx = selectedPokemon.findIndex(n => n.toLowerCase() === nameLower);
-                    if (matchIdx !== -1) {
-                        const killTgt = GM_getValue('piw_killTarget', 100);
-                        const capTgt = GM_getValue('piw_captureTarget', 1);
-                        const capKey = 'piw_captures_' + nameLower;
-                        const prevCap = GM_getValue(capKey, 0);
-                        GM_setValue(capKey, prevCap + 1);
-                        const killKey = 'piw_kills_' + nameLower;
-                        const totalKills = GM_getValue(killKey, 0);
-                        if ((prevCap + 1) >= capTgt && totalKills >= killTgt) {
-                            if (!loopMode) {
-                                selectedPokemon.splice(matchIdx, 1);
-                                GM_setValue('piw_selectedPokemon', selectedPokemon);
-                                renderSelectedTags();
-                                GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! Removido.');
-                            } else {
-                                GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! (loop ativo, mantido na lista)');
+            if (data.success === true) {
+                if (enabled && !busy) {
+                    captureCount++;
+                    GM_log('[AutoHunt] Captura confirmada pelo servidor! Total alvo:', captureCount);
+                    if (data.speciesName) {
+                        const nameLower = data.speciesName.toLowerCase();
+                        const matchIdx = selectedPokemon.findIndex(n => n.toLowerCase() === nameLower);
+                        if (matchIdx !== -1) {
+                            const killTgt = GM_getValue('piw_killTarget', 100);
+                            const capTgt = GM_getValue('piw_captureTarget', 1);
+                            const capKey = 'piw_captures_' + nameLower;
+                            const prevCap = GM_getValue(capKey, 0);
+                            GM_setValue(capKey, prevCap + 1);
+                            const killKey = 'piw_kills_' + nameLower;
+                            const totalKills = GM_getValue(killKey, 0);
+                            if ((prevCap + 1) >= capTgt && totalKills >= killTgt) {
+                                if (!loopMode) {
+                                    selectedPokemon.splice(matchIdx, 1);
+                                    GM_setValue('piw_selectedPokemon', selectedPokemon);
+                                    renderSelectedTags();
+                                    GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! Removido.');
+                                } else {
+                                    GM_log('[AutoHunt] ' + nameLower + ' atingiu os 2 alvos! (loop ativo, mantido na lista)');
+                                }
                             }
                         }
                     }
+                    syncUI();
+                    checkSwitch();
                 }
-                syncUI();
-                checkSwitch();
             }
         }
 
@@ -4796,6 +5574,8 @@
                 createInfoWindowDOM();
                 createMovesWindowDOM();
                 createTrackerWindowDOM();
+                createCapturesWindowDOM();
+                applyOpacityAll();
                 if (trackerWindowVisible) {
                     renderTrackerWindow();
                     if (!trackerInterval) {
@@ -4805,6 +5585,9 @@
                             }
                         }, 1000);
                     }
+                }
+                if (capturesWindowVisible) {
+                    renderCapturesWindow();
                 }
                 syncUI();
                 setTimeout(async () => {
