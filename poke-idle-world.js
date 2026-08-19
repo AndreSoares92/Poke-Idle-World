@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.5.0
+// @version      3.5.8
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.5.0';
+    const SCRIPT_VERSION = '3.5.8';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -707,7 +707,7 @@
     border: 1px solid rgba(132,144,255,.3); border-radius: 14px;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 13px; line-height: 1.4;
-    width: 320px;
+    width: 340px; min-width: 340px;
     box-shadow: 0 14px 44px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.08);
     backdrop-filter: blur(10px); user-select: none;
     overflow: hidden;
@@ -1061,7 +1061,7 @@
 .piw-iw-sum { margin-top: 8px; font-size: 11.5px; font-weight: 600; }
 
 #piw-moves-window {
-    position: fixed; z-index: 2147483000; width: 300px;
+    position: fixed; z-index: 2147483000; width: 360px; min-width: 360px; min-height: 200px;
     display: none; flex-direction: column;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 12px;
@@ -1083,9 +1083,12 @@
 .piw-mw-dot { width: 8px; height: 8px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
 .piw-mw-close { cursor: pointer; color: #a5f3fc; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
 .piw-mw-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-iw-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
-.piw-mw-body { padding: 10px 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
-.piw-mw-party-bar { display: flex; gap: 6px; padding: 6px 8px; margin-bottom: 8px; background: rgba(10,12,20,.75); border: 1px solid rgba(6,182,212,.25); border-radius: 10px; overflow-x: auto; align-items: center; justify-content: center; }
+.piw-iw-body { padding: 12px; display: flex; flex-direction: column; overflow: hidden; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-iw-top-bar { flex-shrink: 0; margin-bottom: 8px; }
+.piw-iw-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.piw-mw-body { padding: 10px 12px; display: flex; flex-direction: column; overflow: hidden; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-mw-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.piw-mw-party-bar { display: flex; gap: 6px; padding: 6px 8px; margin-bottom: 8px; background: rgba(10,12,20,.75); border: 1px solid rgba(6,182,212,.25); border-radius: 10px; overflow-x: auto; align-items: center; justify-content: center; flex-shrink: 0; }
 .piw-mw-party-slot { position: relative; width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; flex-shrink: 0; }
 .piw-mw-party-slot * { pointer-events: none; }
 .piw-mw-party-slot:hover { background: rgba(6,182,212,.15); border-color: rgba(6,182,212,.5); transform: translateY(-2px); }
@@ -1156,7 +1159,7 @@
 [id^="piw-"] *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.45); }
 
 #piw-tracker-window {
-    position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
+    position: fixed; z-index: 2147483000; width: 400px; min-width: 400px; min-height: 200px;
     display: none; flex-direction: column;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 12px;
@@ -1200,7 +1203,7 @@
 .piw-tw-sort-btn.active { background: rgba(16, 185, 129, 0.25); border-color: rgba(52, 211, 153, 0.6); color: #34d399; font-weight: 800; }
 
 #piw-autohunt-window {
-    position: fixed; z-index: 2147483000; width: 340px; min-width: 320px; min-height: 200px;
+    position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
     display: none; flex-direction: column;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 12px;
@@ -1221,11 +1224,12 @@
 .piw-ah-title { display: flex; align-items: center; gap: 8px; }
 .piw-ah-dot { width: 8px; height: 8px; border-radius: 50%; background: #f87171; box-shadow: 0 0 10px #f87171; }
 .piw-ah-close { cursor: pointer; color: #fca5a5; font-size: 16px; font-weight: bold; line-height: 1; padding: 2px 6px; border-radius: 6px; }
-.piw-ah-close:hover { color: #fff; background: rgba(255,255,255,.15); }
-.piw-ah-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-ah-body { padding: 12px; display: flex; flex-direction: column; overflow: hidden; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-ah-top-bar { flex-shrink: 0; margin-bottom: 8px; }
+.piw-ah-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 2px; }
 
 #piw-captures-window {
-    position: fixed; z-index: 2147483000; width: 345px; min-width: 330px; min-height: 200px;
+    position: fixed; z-index: 2147483000; width: 340px; min-width: 340px; min-height: 200px;
     display: none; flex-direction: column;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 12px;
@@ -1340,57 +1344,57 @@
 }
 
 /* 2. Auto Hunt & Seleção de Pokémon / Pokédex (Vermelho) */
-#piw-autohunt-window, #piw-autohunt-window *, .piw-ah-body,
+#piw-autohunt-window, #piw-autohunt-window *, .piw-ah-body, .piw-ah-content,
 #piw-pokedex-overlay, #piw-pokedex-overlay *, .piw-modal, .piw-modal *, .piw-modal-body, .piw-modal-body * {
     scrollbar-color: rgba(239, 68, 68, 0.5) rgba(20, 24, 38, 0.4) !important;
 }
-#piw-autohunt-window *::-webkit-scrollbar-thumb, .piw-ah-body::-webkit-scrollbar-thumb,
+#piw-autohunt-window *::-webkit-scrollbar-thumb, .piw-ah-body::-webkit-scrollbar-thumb, .piw-ah-content::-webkit-scrollbar-thumb,
 #piw-pokedex-overlay *::-webkit-scrollbar-thumb, .piw-modal *::-webkit-scrollbar-thumb, .piw-modal-body::-webkit-scrollbar-thumb, .piw-modal-body *::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, #ef4444, #dc2626) !important;
     border-radius: 99px !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
-#piw-autohunt-window *::-webkit-scrollbar-thumb:hover, .piw-ah-body::-webkit-scrollbar-thumb:hover,
+#piw-autohunt-window *::-webkit-scrollbar-thumb:hover, .piw-ah-body::-webkit-scrollbar-thumb:hover, .piw-ah-content::-webkit-scrollbar-thumb:hover,
 #piw-pokedex-overlay *::-webkit-scrollbar-thumb:hover, .piw-modal *::-webkit-scrollbar-thumb:hover, .piw-modal-body::-webkit-scrollbar-thumb:hover, .piw-modal-body *::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #f87171, #ef4444) !important;
 }
 
 /* 3. Hunt Analyzer (Esmeralda) */
-#piw-tracker-window, #piw-tracker-window *, .piw-tw-body {
+#piw-tracker-window, #piw-tracker-window *, .piw-tw-body, .piw-tw-session-content, .piw-tw-history-list {
     scrollbar-color: rgba(16, 185, 129, 0.5) rgba(15, 23, 42, 0.5) !important;
 }
-#piw-tracker-window *::-webkit-scrollbar-thumb, .piw-tw-body::-webkit-scrollbar-thumb {
+#piw-tracker-window *::-webkit-scrollbar-thumb, .piw-tw-body::-webkit-scrollbar-thumb, .piw-tw-session-content::-webkit-scrollbar-thumb, .piw-tw-history-list::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, #10b981, #059669) !important;
     border-radius: 99px !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
-#piw-tracker-window *::-webkit-scrollbar-thumb:hover, .piw-tw-body::-webkit-scrollbar-thumb:hover {
+#piw-tracker-window *::-webkit-scrollbar-thumb:hover, .piw-tw-body::-webkit-scrollbar-thumb:hover, .piw-tw-session-content::-webkit-scrollbar-thumb:hover, .piw-tw-history-list::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #34d399, #10b981) !important;
 }
 
 /* 4. IVs & Stats (Violeta / Roxo) */
-#piw-info-window, #piw-info-window *, .piw-iw-body {
+#piw-info-window, #piw-info-window *, .piw-iw-body, .piw-iw-content {
     scrollbar-color: rgba(139, 92, 246, 0.5) rgba(20, 24, 38, 0.4) !important;
 }
-#piw-info-window *::-webkit-scrollbar-thumb, .piw-iw-body::-webkit-scrollbar-thumb {
+#piw-info-window *::-webkit-scrollbar-thumb, .piw-iw-body::-webkit-scrollbar-thumb, .piw-iw-content::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, #8b5cf6, #7c3aed) !important;
     border-radius: 99px !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
-#piw-info-window *::-webkit-scrollbar-thumb:hover, .piw-iw-body::-webkit-scrollbar-thumb:hover {
+#piw-info-window *::-webkit-scrollbar-thumb:hover, .piw-iw-body::-webkit-scrollbar-thumb:hover, .piw-iw-content::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #a78bfa, #8b5cf6) !important;
 }
 
 /* 5. Moves (Ciano) */
-#piw-moves-window, #piw-moves-window *, .piw-mw-body {
+#piw-moves-window, #piw-moves-window *, .piw-mw-body, .piw-mw-list {
     scrollbar-color: rgba(6, 182, 212, 0.5) rgba(20, 24, 38, 0.4) !important;
 }
-#piw-moves-window *::-webkit-scrollbar-thumb, .piw-mw-body::-webkit-scrollbar-thumb {
+#piw-moves-window *::-webkit-scrollbar-thumb, .piw-mw-body::-webkit-scrollbar-thumb, .piw-mw-list::-webkit-scrollbar-thumb {
     background: linear-gradient(180deg, #06b6d4, #0891b2) !important;
     border-radius: 99px !important;
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
-#piw-moves-window *::-webkit-scrollbar-thumb:hover, .piw-mw-body::-webkit-scrollbar-thumb:hover {
+#piw-moves-window *::-webkit-scrollbar-thumb:hover, .piw-mw-body::-webkit-scrollbar-thumb:hover, .piw-mw-list::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(180deg, #22d3ee, #06b6d4) !important;
 }
 
@@ -1678,60 +1682,64 @@
                 <span class="piw-ah-close" id="piw-ah-close-btn" title="Fechar">✕</span>
             </div>
             <div class="piw-ah-body">
-                <div style="display:flex;gap:5px;justify-content:center;margin:2px 0 6px;flex-wrap:wrap">
-                    <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
-                    <button class="piw-btn" id="piw-skip" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:7px 11px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(245,158,11,.3)" title="Pular para o próximo pokémon da lista">⏭️ Pular</button>
-                    <button class="piw-btn" id="piw-stop" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(239,68,68,.3)" title="Parar e voltar pra cidade">■ Stop</button>
-                    <button class="piw-btn" id="piw-reset" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:7px 10px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(99,102,241,.3)" title="Resetar contadores">↻ Reset</button>
+                <div class="piw-ah-top-bar">
+                    <div style="display:flex;gap:5px;justify-content:center;margin:2px 0 6px;flex-wrap:wrap">
+                        <button class="piw-btn" id="piw-play" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(34,197,94,.3)" title="Iniciar caça">▶ Play</button>
+                        <button class="piw-btn" id="piw-skip" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:7px 11px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(245,158,11,.3)" title="Pular para o próximo pokémon da lista">⏭️ Pular</button>
+                        <button class="piw-btn" id="piw-stop" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;padding:7px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(239,68,68,.3)" title="Parar e voltar pra cidade">■ Stop</button>
+                        <button class="piw-btn" id="piw-reset" style="background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:7px 10px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;box-shadow:0 2px 8px rgba(99,102,241,.3)" title="Resetar contadores">↻ Reset</button>
+                    </div>
+                    <div style="text-align:center"><div id="piw-status"></div></div>
                 </div>
-                <div style="text-align:center;margin-bottom:6px"><div id="piw-status"></div></div>
-                <div class="piw-card">
-                    <div class="piw-city" id="piw-city-full" style="display:none">Cidade - auto-switch pausado</div>
-                    <div class="piw-leader" id="piw-leader">Líder: —</div>
-                    <div class="piw-shiny" id="piw-shiny">✨ Shiny: 0</div>
-                    <div class="piw-stat piw-kills" id="piw-kills">Abates: 0 / ${KILL_TARGET}</div>
-                    <div class="piw-stat piw-captures" id="piw-captures">Capturas: 0 / ${CAPTURE_TARGET}</div>
-                    <div class="piw-dual-progress">
-                        <div class="piw-dual-progress-item">
-                            <div class="piw-dual-progress-label">Abates</div>
-                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills" style="width:0%"></div></div>
+                <div class="piw-ah-content">
+                    <div class="piw-card">
+                        <div class="piw-city" id="piw-city-full" style="display:none">Cidade - auto-switch pausado</div>
+                        <div class="piw-leader" id="piw-leader">Líder: —</div>
+                        <div class="piw-shiny" id="piw-shiny">✨ Shiny: 0</div>
+                        <div class="piw-stat piw-kills" id="piw-kills">Abates: 0 / ${KILL_TARGET}</div>
+                        <div class="piw-stat piw-captures" id="piw-captures">Capturas: 0 / ${CAPTURE_TARGET}</div>
+                        <div class="piw-dual-progress">
+                            <div class="piw-dual-progress-item">
+                                <div class="piw-dual-progress-label">Abates</div>
+                                <div class="piw-progress"><div class="piw-progress-bar piw-bar-kills" id="piw-bar-kills" style="width:0%"></div></div>
+                            </div>
+                            <div class="piw-dual-progress-item">
+                                <div class="piw-dual-progress-label">Capturas</div>
+                                <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps" style="width:0%"></div></div>
+                            </div>
                         </div>
-                        <div class="piw-dual-progress-item">
-                            <div class="piw-dual-progress-label">Capturas</div>
-                            <div class="piw-progress"><div class="piw-progress-bar piw-bar-caps" id="piw-bar-caps" style="width:0%"></div></div>
+                        <div class="piw-route" id="piw-route" style="display:none">—</div>
+                        <div id="piw-hunting-display" style="text-align:center;margin-top:6px"></div>
+                    </div>
+                    <div class="piw-card">
+                        <div class="piw-card-label">Opções</div>
+                        <label class="piw-check">
+                            <input type="checkbox" id="piw-loop" ${loopMode?'checked':''}>
+                            Modo loop (não remover da lista)
+                        </label>
+                        <label class="piw-check">
+                            <input type="checkbox" id="piw-exit-kills" ${exitOnKills?'checked':''}>
+                            Sair ao atingir abates
+                        </label>
+                        <label class="piw-check">
+                            <input type="checkbox" id="piw-exit-captures" ${exitOnCaptures?'checked':''}>
+                            Sair ao atingir capturas
+                        </label>
+                        <div class="piw-row" style="margin-top:6px">
+                            <label class="piw-label" style="flex:1;margin:0">
+                                Abates <input type="number" id="piw-target" value="${KILL_TARGET}" min="1" max="99999" style="width:80px">
+                            </label>
+                            <label class="piw-label" style="flex:1;margin:0">
+                                Capturas <input type="number" id="piw-capture-target" value="${CAPTURE_TARGET}" min="1" max="99999" style="width:80px">
+                            </label>
                         </div>
                     </div>
-                    <div class="piw-route" id="piw-route" style="display:none">—</div>
-                    <div id="piw-hunting-display" style="text-align:center;margin-top:6px"></div>
-                </div>
-                <div class="piw-card">
-                    <div class="piw-card-label">Opções</div>
-                    <label class="piw-check">
-                        <input type="checkbox" id="piw-loop" ${loopMode?'checked':''}>
-                        Modo loop (não remover da lista)
-                    </label>
-                    <label class="piw-check">
-                        <input type="checkbox" id="piw-exit-kills" ${exitOnKills?'checked':''}>
-                        Sair ao atingir abates
-                    </label>
-                    <label class="piw-check">
-                        <input type="checkbox" id="piw-exit-captures" ${exitOnCaptures?'checked':''}>
-                        Sair ao atingir capturas
-                    </label>
-                    <div class="piw-row" style="margin-top:6px">
-                        <label class="piw-label" style="flex:1;margin:0">
-                            Abates <input type="number" id="piw-target" value="${KILL_TARGET}" min="1" max="99999" style="width:80px">
-                        </label>
-                        <label class="piw-label" style="flex:1;margin:0">
-                            Capturas <input type="number" id="piw-capture-target" value="${CAPTURE_TARGET}" min="1" max="99999" style="width:80px">
-                        </label>
+                    <div class="piw-card">
+                        <div class="piw-card-label">Pokémon da Lista de Caça</div>
+                        <button class="piw-btn piw-btn-primary" id="piw-open-pokedex-ah" style="width:100%;padding:7px 0;font-size:12px;font-weight:700;background:linear-gradient(135deg,#ef4444,#dc2626);border:none;border-radius:10px;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,.3)">Selecionar Pokémon</button>
+                        <div class="piw-selected-tags" id="piw-selected-tags"></div>
+                        <div class="piw-hint" id="piw-hint">Nenhum selecionado</div>
                     </div>
-                </div>
-                <div class="piw-card">
-                    <div class="piw-card-label">Pokémon da Lista de Caça</div>
-                    <button class="piw-btn piw-btn-primary" id="piw-open-pokedex-ah" style="width:100%;padding:7px 0;font-size:12px;font-weight:700;background:linear-gradient(135deg,#ef4444,#dc2626);border:none;border-radius:10px;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,.3)">Selecionar Pokémon</button>
-                    <div class="piw-selected-tags" id="piw-selected-tags"></div>
-                    <div class="piw-hint" id="piw-hint">Nenhum selecionado</div>
                 </div>
             </div>
             <div class="piw-win-resize" title="Arraste para redimensionar"></div>
@@ -2486,17 +2494,29 @@
             `;
         }
 
+        const scrollContainer = body.querySelector('.piw-iw-content');
+        const savedScroll = scrollContainer ? scrollContainer.scrollTop : 0;
+
         body.innerHTML = `
-            ${inspectingBannerHtml}
-            ${partyBarHtml}
-            <div class="piw-iw-card">
-                ${heroHtml}
-                ${barsHtml}
+            <div class="piw-iw-top-bar">
+                ${inspectingBannerHtml}
+                ${partyBarHtml}
             </div>
-            ${statsGridHtml}
-            ${effSectionHtml}
-            ${ivsSectionHtml}
+            <div class="piw-iw-content">
+                <div class="piw-iw-card">
+                    ${heroHtml}
+                    ${barsHtml}
+                </div>
+                ${statsGridHtml}
+                ${effSectionHtml}
+                ${ivsSectionHtml}
+            </div>
         `;
+
+        if (savedScroll > 0) {
+            const newScrollContainer = body.querySelector('.piw-iw-content');
+            if (newScrollContainer) newScrollContainer.scrollTop = savedScroll;
+        }
 
         body.querySelector('#piw-iw-return-leader-btn')?.addEventListener('click', () => {
             inspectedPokemon = null;
@@ -2664,7 +2684,7 @@
         makeDraggable(win, head, 'piw_moves_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        makeResizable(win, resizeHandle, 'piw_moves_win_size', 220, 160);
+        makeResizable(win, resizeHandle, 'piw_moves_win_size', 360, 200);
 
         const handleSlotSelect = (e) => {
             const slot = e.target.closest('.piw-mw-party-slot');
@@ -3109,17 +3129,23 @@
             `;
         };
 
+        const scrollContainer = body.querySelector('.piw-mw-list');
+        const savedScroll = scrollContainer ? scrollContainer.scrollTop : 0;
+
         if (pokemonMoves.length === 0 && takenMovesList.length === 0) {
             body.innerHTML = `
                 ${partyBarHtml}
-                <div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de ${name} (Lv ${level})</div>
-                <div style="color:#cbd5e1;padding:12px 6px;text-align:center;font-size:11.5px;line-height:1.4">
-                    Ainda não vi os moves deste pokémon.<br>
-                    Deixe-o batalhar — os golpes usados e o dano aparecem aqui automaticamente.
+                <div class="piw-mw-list">
+                    <div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de ${name} (Lv ${level})</div>
+                    <div style="color:#cbd5e1;padding:12px 6px;text-align:center;font-size:11.5px;line-height:1.4">
+                        Ainda não vi os moves deste pokémon.<br>
+                        Deixe-o batalhar — os golpes usados e o dano aparecem aqui automaticamente.
+                    </div>
                 </div>
             `;
         } else {
             let html = partyBarHtml;
+            html += `<div class="piw-mw-list">`;
             html += `<div class="piw-mw-sub" style="margin-bottom:6px;font-size:12.5px;color:#fff">⚔ Moves de <b>${name}</b> (Lv ${level})</div>`;
             html += pokemonMoves.map(m => renderMoveItem(m, false)).join('');
 
@@ -3127,8 +3153,14 @@
                 html += `<div class="piw-mw-sub" style="margin-top:12px;margin-bottom:6px;font-size:12px;color:#a5b4fc;font-weight:700">🛡 GOLPES RECEBIDOS <small style="color:#cbd5e1;text-transform:none;letter-spacing:0;font-size:11px;font-weight:500">· nesta hunt</small></div>`;
                 html += takenMovesList.map(m => renderMoveItem(m, true)).join('');
             }
+            html += `</div>`;
 
             body.innerHTML = html;
+        }
+
+        if (savedScroll > 0) {
+            const newScrollContainer = body.querySelector('.piw-mw-list');
+            if (newScrollContainer) newScrollContainer.scrollTop = savedScroll;
         }
     }
 
@@ -3518,7 +3550,7 @@
         makeDraggable(win, head, 'piw_tracker_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        makeResizable(win, resizeHandle, 'piw_tracker_win_size', 340, 200);
+        makeResizable(win, resizeHandle, 'piw_tracker_win_size', 400, 200);
     }
 
     function closeTrackerWindow() {
@@ -3581,6 +3613,11 @@
         const body = win.querySelector('.piw-tw-body');
         if (!body) return;
 
+        const histScrollContainer = body.querySelector('.piw-tw-history-list');
+        const sessScrollContainer = body.querySelector('.piw-tw-session-content');
+        const savedHistScroll = histScrollContainer ? histScrollContainer.scrollTop : 0;
+        const savedSessScroll = sessScrollContainer ? sessScrollContainer.scrollTop : 0;
+
         const tabSessionBtn = win.querySelector('#piw-tw-tab-session');
         const tabHistoryBtn = win.querySelector('#piw-tw-tab-history');
         if (tabSessionBtn && tabHistoryBtn) {
@@ -3633,54 +3670,56 @@
                 const absNet = Math.abs(item.netBalance ?? 0);
                 const absNetHour = Math.abs(item.netPerHour ?? 0);
                 const sprite = getPokemonSpriteUrl(item.route);
+                const capsTxt = item.caps ? ` (${item.caps} capturas)` : '';
+                const lootTip = `Loot: $${Number(item.lootGained || 0).toLocaleString('pt-BR')} | Gastos: -$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}`;
 
                 return `
                     <div class="piw-tw-history-item${isBestExp ? ' best-exp' : ''}">
-                        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                            <div>
-                                <div style="display:flex;align-items:center;gap:6px">
-                                    ${sprite ? `<img src="${sprite}" style="width:22px;height:22px;object-fit:contain;image-rendering:pixelated" onerror="this.style.display='none'">` : ''}
-                                    <span style="font-weight:700;color:#fff;font-size:13px">${cleanPokemonName(item.route)}</span>
-                                    ${isBestExp ? '<span class="piw-tw-badge-best">🏆 TOP XP</span>' : ''}
-                                    ${isBestProfit ? '<span class="piw-tw-badge-best" style="background:linear-gradient(135deg,#eab308,#ca8a04)">💰 TOP LUCRO</span>' : ''}
-                                </div>
-                                <div style="font-size:11.5px;font-weight:600;color:#cbd5e1;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px">
-                                    <span style="white-space:nowrap">👑 <b style="color:#fff">${item.leaderName}</b> (Nv. ${item.leaderLevel})</span>
-                                    <span style="color:rgba(255,255,255,.3)">·</span>
-                                    <span style="white-space:nowrap">⏱️ <b style="color:#93c5fd">${formatDuration(item.durationSec)}</b></span>
-                                    <span style="color:rgba(255,255,255,.3)">·</span>
-                                    <span style="white-space:nowrap">⚔️ <b style="color:#a5b4fc">${item.kills}</b> abates</span>
-                                    ${item.caps ? `<span style="color:rgba(255,255,255,.3)">·</span><span style="white-space:nowrap">🔴 <b style="color:#86efac">${item.caps}</b> caps</span>` : ''}
-                                    <span style="color:rgba(255,255,255,.3)">·</span>
-                                    <span style="white-space:nowrap">📅 <b style="color:#fde047">${item.date}</b></span>
-                                </div>
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1">
+                                ${sprite ? `<img src="${sprite}" style="width:22px;height:22px;object-fit:contain;image-rendering:pixelated;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+                                <span style="font-weight:700;color:#fff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${cleanPokemonName(item.route)}</span>
+                                ${isBestExp ? '<span class="piw-tw-badge-best">🏆 TOP XP</span>' : ''}
+                                ${isBestProfit ? '<span class="piw-tw-badge-best" style="background:linear-gradient(135deg,#eab308,#ca8a04)">💰 TOP LUCRO</span>' : ''}
                             </div>
-                            <button class="piw-tw-del-item" data-id="${item.id}" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:15px;padding:2px 6px;line-height:1" title="Excluir do histórico">✕</button>
+                            <button class="piw-tw-del-item" data-id="${item.id}" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:15px;padding:2px 6px;line-height:1;margin-left:4px" title="Excluir do histórico">✕</button>
                         </div>
-                        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-top:8px;background:rgba(0,0,0,.25);padding:8px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.06)">
+
+                        <div style="font-size:11px;font-weight:600;color:#cbd5e1;margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px">
+                            <span style="white-space:nowrap">👑 <b style="color:#fff">${item.leaderName}</b> (Nv. ${item.leaderLevel})</span>
+                            <span style="color:rgba(255,255,255,.3)">·</span>
+                            <span style="white-space:nowrap">⏱️ <b style="color:#93c5fd">${formatDuration(item.durationSec)}</b></span>
+                            <span style="color:rgba(255,255,255,.3)">·</span>
+                            <span style="white-space:nowrap">⚔️ <b style="color:#a5b4fc">${item.kills}</b>${capsTxt}</span>
+                            <span style="color:rgba(255,255,255,.3)">·</span>
+                            <span style="white-space:nowrap">📅 <b style="color:#fde047">${item.date}</b></span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px;background:rgba(0,0,0,.25);padding:7px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.06)">
                             <div style="text-align:center">
                                 <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">✨ XP / HORA</div>
-                                <div style="font-size:13px;font-weight:700;color:#34d399;margin-top:2px">${Number(item.expPerHour || 0).toLocaleString('pt-BR')}</div>
+                                <div style="font-size:13.5px;font-weight:700;color:#34d399;margin-top:1px">${Number(item.expPerHour || 0).toLocaleString('pt-BR')}</div>
                             </div>
                             <div style="text-align:center">
-                                <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">📈 SALDO / H</div>
-                                <div style="font-size:13px;font-weight:700;color:${isNetPositive ? '#4ade80' : '#f87171'};margin-top:2px">${sign}$${Number(absNetHour).toLocaleString('pt-BR')}</div>
-                            </div>
-                            <div style="text-align:center">
-                                <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">⚔️ ABATES / H</div>
-                                <div style="font-size:13px;font-weight:700;color:#60a5fa;margin-top:2px">${Number(item.killsPerHour || 0).toLocaleString('pt-BR')}/h</div>
+                                <div style="font-size:10.5px;font-weight:700;color:#cbd5e1;letter-spacing:.3px">💰 LUCRO / HORA</div>
+                                <div style="font-size:13.5px;font-weight:700;color:${isNetPositive ? '#4ade80' : '#f87171'};margin-top:1px">${sign}$${Number(absNetHour).toLocaleString('pt-BR')}</div>
                             </div>
                         </div>
-                        <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:600;color:#cbd5e1;margin-top:6px;padding:0 4px">
-                            <span>Loot: <b style="color:#facc15">$${Number(item.lootGained || 0).toLocaleString('pt-BR')}</b></span>
-                            <span>Gastos: <b style="color:#fca5a5">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
-                            <span>Saldo: <b style="color:${isNetPositive ? '#86efac' : '#fca5a5'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
+
+                        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:600;color:#cbd5e1;margin-top:5px;padding:0 2px" title="${lootTip}">
+                            <span>Saldo Total: <b style="color:${isNetPositive ? '#86efac' : '#fca5a5'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
+                            <span style="color:#94a3b8;font-size:10.5px">Loot $${Number(item.lootGained || 0).toLocaleString('pt-BR')} · Gastos -$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</span>
                         </div>
                     </div>
                 `;
             }).join('') + '</div>';
 
             body.innerHTML = html;
+
+            if (savedHistScroll > 0) {
+                const newHist = body.querySelector('.piw-tw-history-list');
+                if (newHist) newHist.scrollTop = savedHistScroll;
+            }
 
             body.querySelectorAll('.piw-tw-sort-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -3828,6 +3867,11 @@
             </div>
         `;
 
+        if (savedSessScroll > 0) {
+            const newSess = body.querySelector('.piw-tw-session-content');
+            if (newSess) newSess.scrollTop = savedSessScroll;
+        }
+
         body.querySelector('#piw-tw-save-btn')?.addEventListener('click', () => saveCurrentRouteSession(true));
         body.querySelector('#piw-tw-reset-btn')?.addEventListener('click', () => {
             resetTrackerSession();
@@ -3941,7 +3985,7 @@
         makeDraggable(win, head, 'piw_caps_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        makeResizable(win, resizeHandle, 'piw_caps_win_size', 330, 200);
+        makeResizable(win, resizeHandle, 'piw_caps_win_size', 340, 200);
 
         if (capturesWindowVisible) {
             renderCapturesWindow();
@@ -4089,6 +4133,9 @@
             itemsHtml = filtered.map(renderItem).join('');
         }
 
+        const scrollContainer = body.querySelector('.piw-cw-list');
+        const savedScroll = scrollContainer ? scrollContainer.scrollTop : 0;
+
         body.innerHTML = `
             <div class="piw-cw-grid">
                 <div class="piw-cw-stat">
@@ -4119,6 +4166,11 @@
                 ${itemsHtml}
             </div>
         `;
+
+        if (savedScroll > 0) {
+            const newScrollContainer = body.querySelector('.piw-cw-list');
+            if (newScrollContainer) newScrollContainer.scrollTop = savedScroll;
+        }
 
         body.querySelectorAll('.piw-cw-qual-pill').forEach(pill => {
             pill.addEventListener('click', () => {
