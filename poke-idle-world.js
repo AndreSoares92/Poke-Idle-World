@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.4.8
+// @version      3.4.9
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.4.8';
+    const SCRIPT_VERSION = '3.4.9';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -1182,7 +1182,10 @@
 .piw-tw-tab { flex: 1; text-align: center; padding: 6px 8px; border-radius: 8px; font-weight: 700; font-size: 11px; cursor: pointer; color: #9aa3bf; background: transparent; border: 1px solid transparent; transition: all .15s; }
 .piw-tw-tab:hover { color: #fff; background: rgba(255,255,255,.05); }
 .piw-tw-tab.active { color: #34d399; background: rgba(16,185,129,.15); border-color: rgba(16,185,129,.35); box-shadow: 0 0 10px rgba(16,185,129,.2); }
-.piw-tw-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
+.piw-tw-body { padding: 12px; display: flex; flex-direction: column; overflow: hidden; flex: 1 1 auto; min-height: 0; }
+.piw-tw-session-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.piw-tw-history-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; }
+.piw-tw-history-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .piw-tw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .piw-tw-stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 9px 10px; }
 .piw-tw-stat-title { font-size: 11px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 4px; }
@@ -3611,7 +3614,7 @@
             }
 
             let html = `
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div class="piw-tw-history-toolbar">
                     <div style="display:flex;gap:4px">
                         <button class="piw-tw-sort-btn ${historySortBy === 'recent' ? 'active' : ''}" data-sort="recent">🕒 Recentes</button>
                         <button class="piw-tw-sort-btn ${historySortBy === 'exp' ? 'active' : ''}" data-sort="exp">✨ Top XP/h</button>
@@ -3619,6 +3622,7 @@
                     </div>
                     <button id="piw-tw-clear-history" style="background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.3);color:#f87171;border-radius:6px;padding:2px 8px;font-size:10px;cursor:pointer;font-weight:700">Limpar Tudo</button>
                 </div>
+                <div class="piw-tw-history-list">
             `;
 
             html += sortedHistory.map((item) => {
@@ -3674,7 +3678,7 @@
                         </div>
                     </div>
                 `;
-            }).join('');
+            }).join('') + '</div>';
 
             body.innerHTML = html;
 
@@ -3755,70 +3759,72 @@
         const locationTitle = getDisplayHuntName();
 
         body.innerHTML = `
-            <div class="piw-card" style="margin-bottom:8px">
-                <div style="display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                        <div style="font-weight:700;font-size:13.5px;color:#fff">${locationTitle}</div>
-                        <div style="font-size:11.5px;color:#e2e8f0;margin-top:2px">👑 ${cleanPokemonName(leaderName || '?')} <span style="color:#93c5fd;font-weight:700">Lv. ${leaderLevel || 1}</span></div>
+            <div class="piw-tw-session-content">
+                <div class="piw-card" style="margin-bottom:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                            <div style="font-weight:700;font-size:13.5px;color:#fff">${locationTitle}</div>
+                            <div style="font-size:11.5px;color:#e2e8f0;margin-top:2px">👑 ${cleanPokemonName(leaderName || '?')} <span style="color:#93c5fd;font-weight:700">Lv. ${leaderLevel || 1}</span></div>
+                        </div>
+                        <div style="text-align:right">
+                            <div style="font-size:13.5px;font-weight:700;color:${timerColor};font-variant-numeric:tabular-nums">${isPaused && elapsedSec > 0 ? '⏸️ ' : ''}${formattedTime}</div>
+                            <div style="font-size:10.5px;font-weight:600;color:${isPaused && elapsedSec > 0 ? '#fca5a5' : '#cbd5e1'}">${statusLabel}</div>
+                        </div>
                     </div>
-                    <div style="text-align:right">
-                        <div style="font-size:13.5px;font-weight:700;color:${timerColor};font-variant-numeric:tabular-nums">${isPaused && elapsedSec > 0 ? '⏸️ ' : ''}${formattedTime}</div>
-                        <div style="font-size:10.5px;font-weight:600;color:${isPaused && elapsedSec > 0 ? '#fca5a5' : '#cbd5e1'}">${statusLabel}</div>
+                </div>
+
+                <div class="piw-tw-grid">
+                    <div class="piw-tw-stat" style="border-top:2px solid #34d399">
+                        <div class="piw-tw-stat-title">✨ XP / HORA</div>
+                        <div class="piw-tw-stat-val" style="color:#34d399">${expPerHour.toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">Taxa horária estimada</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid #818cf8">
+                        <div class="piw-tw-stat-title">⭐ XP TOTAL</div>
+                        <div class="piw-tw-stat-val" style="color:#818cf8">+${huntSession.xp.toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">XP ganha nesta sessão</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid #f59e0b">
+                        <div class="piw-tw-stat-title">💰 LOOT / HORA</div>
+                        <div class="piw-tw-stat-val" style="color:#f59e0b">$${lootPerHour.toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">Taxa de farm estimada</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid #facc15">
+                        <div class="piw-tw-stat-title">💎 LOOT TOTAL</div>
+                        <div class="piw-tw-stat-val" style="color:#facc15">$${sessionLoot.toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">${huntSession.drops.size} tipo(s) de itens</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#34d399' : '#f87171'}">
+                        <div class="piw-tw-stat-title">📈 SALDO / HORA</div>
+                        <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#34d399' : '#f87171'}">${sign}$${Math.abs(netPerHour).toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">${isNetPositive ? 'Lucro líquido/h' : 'Prejuízo líquido/h'}</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#4ade80' : '#f87171'}">
+                        <div class="piw-tw-stat-title">💵 SALDO TOTAL</div>
+                        <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${absNet.toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">Loot + Capturas - Gastos</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid #f87171">
+                        <div class="piw-tw-stat-title">🛒 GASTOS DE CAÇA</div>
+                        <div class="piw-tw-stat-val" style="color:#f87171">-$${sessionSupply.toLocaleString('pt-BR')}</div>
+                        <div class="piw-tw-stat-sub">${huntSession.balls} Poké Balls${huntSession.potions > 0 ? ` · ${huntSession.potions} Potions` : ''}</div>
+                    </div>
+                    <div class="piw-tw-stat" style="border-top:2px solid #60a5fa">
+                        <div class="piw-tw-stat-title">🎯 PRÓX. NÍVEL</div>
+                        <div class="piw-tw-stat-val" style="font-size:13px;color:#93c5fd;margin-top:3px">${etaVal}</div>
+                        <div class="piw-tw-stat-sub">${etaSub}</div>
                     </div>
                 </div>
-            </div>
 
-            <div class="piw-tw-grid">
-                <div class="piw-tw-stat" style="border-top:2px solid #34d399">
-                    <div class="piw-tw-stat-title">✨ XP / HORA</div>
-                    <div class="piw-tw-stat-val" style="color:#34d399">${expPerHour.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">Taxa horária estimada</div>
+                <div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px 12px;display:flex;justify-content:space-between;margin-bottom:8px;font-size:11.5px;color:#e2e8f0">
+                    <span>⚔ Derrotados: <b style="color:#93c5fd">${huntSession.kills}</b> <span style="color:#cbd5e1;font-weight:600">(${killsPerHour}/h)</span></span>
+                    <span>🔴 Capturas: <b style="color:#86efac">${huntSession.caps}</b></span>
                 </div>
-                <div class="piw-tw-stat" style="border-top:2px solid #818cf8">
-                    <div class="piw-tw-stat-title">⭐ XP TOTAL</div>
-                    <div class="piw-tw-stat-val" style="color:#818cf8">+${huntSession.xp.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">XP ganha nesta sessão</div>
-                </div>
-                <div class="piw-tw-stat" style="border-top:2px solid #f59e0b">
-                    <div class="piw-tw-stat-title">💰 LOOT / HORA</div>
-                    <div class="piw-tw-stat-val" style="color:#f59e0b">$${lootPerHour.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">Taxa de farm estimada</div>
-                </div>
-                <div class="piw-tw-stat" style="border-top:2px solid #facc15">
-                    <div class="piw-tw-stat-title">💎 LOOT TOTAL</div>
-                    <div class="piw-tw-stat-val" style="color:#facc15">$${sessionLoot.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">${huntSession.drops.size} tipo(s) de itens</div>
-                </div>
-                <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#34d399' : '#f87171'}">
-                    <div class="piw-tw-stat-title">📈 SALDO / HORA</div>
-                    <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#34d399' : '#f87171'}">${sign}$${Math.abs(netPerHour).toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">${isNetPositive ? 'Lucro líquido/h' : 'Prejuízo líquido/h'}</div>
-                </div>
-                <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#4ade80' : '#f87171'}">
-                    <div class="piw-tw-stat-title">💵 SALDO TOTAL</div>
-                    <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${absNet.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">Loot + Capturas - Gastos</div>
-                </div>
-                <div class="piw-tw-stat" style="border-top:2px solid #f87171">
-                    <div class="piw-tw-stat-title">🛒 GASTOS DE CAÇA</div>
-                    <div class="piw-tw-stat-val" style="color:#f87171">-$${sessionSupply.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">${huntSession.balls} Poké Balls${huntSession.potions > 0 ? ` · ${huntSession.potions} Potions` : ''}</div>
-                </div>
-                <div class="piw-tw-stat" style="border-top:2px solid #60a5fa">
-                    <div class="piw-tw-stat-title">🎯 PRÓX. NÍVEL</div>
-                    <div class="piw-tw-stat-val" style="font-size:13px;color:#93c5fd;margin-top:3px">${etaVal}</div>
-                    <div class="piw-tw-stat-sub">${etaSub}</div>
-                </div>
-            </div>
 
-            <div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px 12px;display:flex;justify-content:space-between;margin-bottom:8px;font-size:11.5px;color:#e2e8f0">
-                <span>⚔ Derrotados: <b style="color:#93c5fd">${huntSession.kills}</b> <span style="color:#cbd5e1;font-weight:600">(${killsPerHour}/h)</span></span>
-                <span>🔴 Capturas: <b style="color:#86efac">${huntSession.caps}</b></span>
-            </div>
-
-            <div style="display:flex;gap:6px">
-                <button id="piw-tw-save-btn" style="flex:2;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,.3);transition:all .15s">💾 Salvar no Histórico</button>
-                <button id="piw-tw-reset-btn" style="flex:1;background:linear-gradient(135deg,#ef4444,#dc2626);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,.3);transition:all .15s">↻ Resetar</button>
+                <div style="display:flex;gap:6px">
+                    <button id="piw-tw-save-btn" style="flex:2;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(16,185,129,.3);transition:all .15s">💾 Salvar no Histórico</button>
+                    <button id="piw-tw-reset-btn" style="flex:1;background:linear-gradient(135deg,#ef4444,#dc2626);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:8px;font-size:11.5px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(239,68,68,.3);transition:all .15s">↻ Resetar</button>
+                </div>
             </div>
         `;
 
