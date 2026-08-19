@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.4.4
+// @version      3.4.6
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.4.4';
+    const SCRIPT_VERSION = '3.4.6';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -3655,7 +3655,7 @@
                         </div>
                         <div style="display:flex;justify-content:space-between;font-size:11.5px;font-weight:600;color:#cbd5e1;margin-top:6px;padding:0 4px">
                             <span>Loot: <b style="color:#facc15">$${Number(item.lootGained || 0).toLocaleString('pt-BR')}</b></span>
-                            <span>Supply: <b style="color:#fca5a5">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
+                            <span>Gastos: <b style="color:#fca5a5">-$${Number(item.supplyCost || 0).toLocaleString('pt-BR')}</b></span>
                             <span>Saldo: <b style="color:${isNetPositive ? '#86efac' : '#fca5a5'}">${sign}$${Number(absNet).toLocaleString('pt-BR')}</b></span>
                         </div>
                     </div>
@@ -3783,12 +3783,12 @@
                 <div class="piw-tw-stat" style="border-top:2px solid ${isNetPositive ? '#4ade80' : '#f87171'}">
                     <div class="piw-tw-stat-title">💵 SALDO TOTAL</div>
                     <div class="piw-tw-stat-val" style="color:${isNetPositive ? '#4ade80' : '#f87171'}">${sign}$${absNet.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">Loot + Capturas - Supply</div>
+                    <div class="piw-tw-stat-sub">Loot + Capturas - Gastos</div>
                 </div>
                 <div class="piw-tw-stat" style="border-top:2px solid #f87171">
-                    <div class="piw-tw-stat-title">🛒 SUPPLY GASTO</div>
+                    <div class="piw-tw-stat-title">🛒 GASTOS DE CAÇA</div>
                     <div class="piw-tw-stat-val" style="color:#f87171">-$${sessionSupply.toLocaleString('pt-BR')}</div>
-                    <div class="piw-tw-stat-sub">${huntSession.balls} bolas${huntSession.potions > 0 ? ` · ${huntSession.potions} poções` : ''}</div>
+                    <div class="piw-tw-stat-sub">${huntSession.balls} Poké Balls${huntSession.potions > 0 ? ` · ${huntSession.potions} Potions` : ''}</div>
                 </div>
                 <div class="piw-tw-stat" style="border-top:2px solid #60a5fa">
                     <div class="piw-tw-stat-title">🎯 PRÓX. NÍVEL</div>
@@ -3931,6 +3931,9 @@
     function closeCapturesWindow() {
         capturesWindowVisible = false;
         GM_setValue('piw_caps_win_visible', false);
+        captureFilterQuality = 'all';
+        captureFilterShiny = false;
+        captureFilterQuery = '';
         const win = document.getElementById('piw-captures-window');
         if (win) win.style.display = 'none';
     }
@@ -3947,8 +3950,15 @@
         GM_setValue('piw_caps_win_visible', capturesWindowVisible);
         win.style.display = capturesWindowVisible ? 'flex' : 'none';
         if (capturesWindowVisible) {
+            captureFilterQuality = 'all';
+            captureFilterShiny = false;
+            captureFilterQuery = '';
             bringToFront(win);
             renderCapturesWindow();
+        } else {
+            captureFilterQuality = 'all';
+            captureFilterShiny = false;
+            captureFilterQuery = '';
         }
     }
 
