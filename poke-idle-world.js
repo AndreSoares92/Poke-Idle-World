@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.4.9
+// @version      3.5.0
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.4.9';
+    const SCRIPT_VERSION = '3.5.0';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -1225,7 +1225,7 @@
 .piw-ah-body { padding: 12px; overflow-y: auto; user-select: text; flex: 1 1 auto; min-height: 0; }
 
 #piw-captures-window {
-    position: fixed; z-index: 2147483000; width: 375px; min-width: 360px; min-height: 220px;
+    position: fixed; z-index: 2147483000; width: 345px; min-width: 330px; min-height: 200px;
     display: none; flex-direction: column;
     color: #e7ebf7; font-family: -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
     font-size: 12px;
@@ -3941,7 +3941,7 @@
         makeDraggable(win, head, 'piw_caps_win_pos');
 
         const resizeHandle = win.querySelector('.piw-win-resize');
-        makeResizable(win, resizeHandle, 'piw_caps_win_size', 360, 220);
+        makeResizable(win, resizeHandle, 'piw_caps_win_size', 330, 200);
 
         if (capturesWindowVisible) {
             renderCapturesWindow();
