@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.4.3
+// @version      3.4.4
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.4.3';
+    const SCRIPT_VERSION = '3.4.4';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -4094,8 +4094,10 @@
         body.querySelectorAll('.piw-cw-qual-pill').forEach(pill => {
             pill.addEventListener('click', () => {
                 const qId = pill.dataset.qual;
-                captureFilterQuality = (captureFilterQuality === qId && qId !== 'all') ? 'all' : qId;
-                renderCapturesWindow();
+                if (captureFilterQuality !== qId) {
+                    captureFilterQuality = qId;
+                    renderCapturesWindow();
+                }
             });
         });
 
