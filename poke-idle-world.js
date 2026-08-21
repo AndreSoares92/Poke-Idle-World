@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.5.8
+// @version      3.5.9
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.5.8';
+    const SCRIPT_VERSION = '3.5.9';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -1565,9 +1565,10 @@
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
             if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
-            const minVisible = 20;
+            const minVisible = 40;
             const newLeft = Math.max(-win.offsetWidth + minVisible, Math.min(window.innerWidth - minVisible, initialLeft + dx));
-            const newTop = Math.max(-10, Math.min(window.innerHeight - minVisible, initialTop + dy));
+            const maxTop = Math.max(0, window.innerHeight - 35);
+            const newTop = Math.max(0, Math.min(maxTop, initialTop + dy));
             win.style.left = `${newLeft}px`;
             win.style.top = `${newTop}px`;
         };
@@ -1598,6 +1599,7 @@
         let isResizing = false;
         let startX = 0, startY = 0;
         let startW = 0, startH = 0;
+        let initialTop = 0, initialLeft = 0;
 
         const onStart = (e) => {
             isResizing = true;
@@ -1605,6 +1607,9 @@
             startY = e.clientY;
             startW = win.offsetWidth;
             startH = win.offsetHeight;
+            const rect = win.getBoundingClientRect();
+            initialTop = rect.top;
+            initialLeft = rect.left;
             bringToFront(win);
             e.preventDefault();
             e.stopPropagation();
@@ -1612,8 +1617,17 @@
 
         const onMove = (e) => {
             if (!isResizing) return;
-            const newW = Math.max(minW, startW + (e.clientX - startX));
-            const newH = Math.max(minH, startH + (e.clientY - startY));
+            // Limita newW e newH para que o canto inferior direito (onde fica o handle de redimensionar)
+            // NUNCA ultrapasse as bordas da tela
+            const maxW = Math.max(minW, window.innerWidth - initialLeft - 8);
+            const maxH = Math.max(minH, window.innerHeight - initialTop - 8);
+
+            const targetW = startW + (e.clientX - startX);
+            const targetH = startH + (e.clientY - startY);
+
+            const newW = Math.min(maxW, Math.max(minW, targetW));
+            const newH = Math.min(maxH, Math.max(minH, targetH));
+
             win.style.width = `${newW}px`;
             win.style.height = `${newH}px`;
         };
@@ -1630,7 +1644,37 @@
         resizeHandle.addEventListener('mousedown', onStart);
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onEnd);
+        setTimeout(() => clampWindowToScreen(win, minW, minH), 50);
     }
+
+    function clampWindowToScreen(win, minW = 240, minH = 160) {
+        if (!win) return;
+        const rect = win.getBoundingClientRect();
+        let left = rect.left;
+        let top = rect.top;
+        let w = rect.width;
+        let h = rect.height;
+
+        if (top < 0) { top = 0; win.style.top = '0px'; }
+        if (top > window.innerHeight - 35) { top = Math.max(0, window.innerHeight - 35); win.style.top = `${top}px`; }
+
+        if (h && (top + h > window.innerHeight - 8)) {
+            const newH = Math.max(minH, window.innerHeight - top - 8);
+            win.style.height = `${newH}px`;
+        }
+        if (w && (left + w > window.innerWidth - 8)) {
+            const newW = Math.max(minW, window.innerWidth - left - 8);
+            win.style.width = `${newW}px`;
+        }
+    }
+
+    window.addEventListener('resize', () => {
+        const windows = document.querySelectorAll('#piw-panel, #piw-autohunt-window, #piw-tracker-window, #piw-info-window, #piw-moves-window, #piw-captures-window');
+        windows.forEach(win => {
+            if (win.style.display === 'none' || win.offsetWidth === 0) return;
+            clampWindowToScreen(win);
+        });
+    });
 
     let autohuntWindowVisible = GM_getValue('piw_autohunt_win_visible', false);
 
