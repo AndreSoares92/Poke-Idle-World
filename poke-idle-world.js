@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Poke Helper
 // @namespace    http://tampermonkey.net/
-// @version      3.5.9
+// @version      3.6.0
 // @description  Central de ferramentas completa para Poké Idle World: Auto Hunt inteligente, Hunt Analyzer (XP/h, Loot e Lucro), Inspetor de IVs & Stats, Analisador de Moves e Log de Capturas.
 // @author       You
 // @match        https://poke.idleworld.online/play
@@ -68,7 +68,7 @@
     } catch(e) {}
 
     // ========== CONFIG (persistida) ==========
-    const SCRIPT_VERSION = '3.5.9';
+    const SCRIPT_VERSION = '3.6.0';
     const KILL_TARGET    = GM_getValue('piw_killTarget', 100);
     const CAPTURE_TARGET = GM_getValue('piw_captureTarget', 1);
     let enabled          = false; // Sempre começa pausado ao abrir ou atualizar a página
@@ -3305,6 +3305,8 @@
                     startAt: Number(raw.startAt) || Date.now(),
                     slug: cleanSlug,
                     huntName: cleanName,
+                    leaderName: (typeof raw.leaderName === 'string' && raw.leaderName.trim()) ? cleanPokemonName(raw.leaderName.trim()) : null,
+                    leaderLevel: Number(raw.leaderLevel) || null,
                     speciesId: raw.speciesId || null,
                     activeMs: Number(raw.activeMs) || 0,
                     lastTickAt: null,
@@ -3339,6 +3341,8 @@
                 startAt: Number(huntSession.startAt) || Date.now(),
                 slug: cleanSlug,
                 huntName: cleanName,
+                leaderName: huntSession.leaderName || null,
+                leaderLevel: huntSession.leaderLevel || null,
                 speciesId: huntSession.speciesId || null,
                 activeMs: Number(huntSession.activeMs) || 0,
                 kills: Number(huntSession.kills) || 0,
@@ -3360,6 +3364,8 @@
         startAt: Date.now(),
         slug: null,
         huntName: null,
+        leaderName: null,
+        leaderLevel: null,
         speciesId: null,
         activeMs: 0,
         lastTickAt: null,
@@ -3474,10 +3480,13 @@
     function resetTrackerSession(newSlug) {
         const cleanSlug = (typeof newSlug === 'string' && newSlug.trim()) ? newSlug.trim() : (typeof currentSlug === 'string' && currentSlug.trim() ? currentSlug.trim() : null);
         const cleanName = (typeof cleanSlug === 'string' && !/^(kanto|outland)$/i.test(cleanSlug)) ? cleanSlug : (getDisplayHuntName(true) || 'Rota');
+        const currentLead = leaderName ? cleanPokemonName(leaderName) : null;
         huntSession = {
             startAt: Date.now(),
             slug: cleanSlug,
             huntName: cleanName,
+            leaderName: currentLead,
+            leaderLevel: leaderLevel || 1,
             speciesId: null,
             activeMs: 0,
             lastTickAt: null,
@@ -3496,7 +3505,7 @@
         lastHeroMaxHp = null;
         persistHuntSession();
         if (trackerWindowVisible) renderTrackerWindow();
-        GM_log('[AutoHunt] Sessão de rendimento resetada para:', huntSession.huntName);
+        GM_log('[AutoHunt] Sessão de rendimento resetada para:', huntSession.huntName, 'com Líder:', huntSession.leaderName);
     }
 
     function saveCurrentRouteSession(switchToHistoryTab = true) {
@@ -3513,12 +3522,14 @@
         const killsPerHour = Math.round(huntSession.kills / hours);
 
         const routeTitle = huntSession?.huntName || huntSession?.slug || getDisplayHuntName() || currentRoute || currentSlug || 'Rota';
+        const savedLeaderName = huntSession?.leaderName || cleanPokemonName(leaderName || '?');
+        const savedLeaderLevel = huntSession?.leaderLevel || leaderLevel || 1;
 
         const entry = {
             id: Date.now(),
             route: routeTitle,
-            leaderName: cleanPokemonName(leaderName || '?'),
-            leaderLevel: leaderLevel || 1,
+            leaderName: savedLeaderName,
+            leaderLevel: savedLeaderLevel,
             durationSec: elapsedSec,
             expGained: huntSession.xp,
             expPerHour: expPerHour,
@@ -5043,6 +5054,11 @@
         if (data.type === 'field' && Number.isFinite(Number(data.seq))) {
             const now = Date.now();
 
+            if (!isCity() && leaderName) {
+                huntSession.leaderName = cleanPokemonName(leaderName);
+                if (leaderLevel) huntSession.leaderLevel = leaderLevel;
+            }
+
             if (!huntingPokemon && Array.isArray(data.mobs) && data.mobs.length > 0) {
                 const firstMob = data.mobs[0];
                 if (firstMob && firstMob.speciesId != null) {
@@ -5069,6 +5085,11 @@
 
         // 3. Abate Oficial no Campo (XP exata + Drops reais com itens e preços de catálogo)
         if (data.type === 'field-kill') {
+            if (!isCity() && leaderName) {
+                huntSession.leaderName = cleanPokemonName(leaderName);
+                if (leaderLevel) huntSession.leaderLevel = leaderLevel;
+            }
+
             const currentMobName = cleanPokemonName(data.name || data.mob?.name || data.mobName || data.speciesName || huntingPokemon);
             if (currentMobName && !huntingPokemon && !/^(kanto|outland|cidade|centro)$/i.test(currentMobName)) {
                 huntSession.huntName = currentMobName;
